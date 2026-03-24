@@ -24,13 +24,12 @@ class AuditResult:
 class Auditor:
     """Main auditor class for crawling and checking WCAG compliance."""
     
-    def __init__(self, base_url: str, max_depth: int = 2, max_pages: int =  50, timeout: int = 30, user_agent: str = "WCAG-Auditor/0.1.0"):
+    def __init__(self, base_url: str, max_depth: int = 2, max_pages: int = 50, timeout: int = 30, user_agent: str = "WCAG-Auditor/0.1.0"):
         self.base_url = base_url
         self.max_depth = max_depth
         self.max_pages = max_pages
         self.timeout = timeout
-        self.user_agent = user_
-agent
+        self.user_agent = user_agent
         self.visited_urls: Set[str] = set()
         self.results: List[AuditResult] = []
         
@@ -133,7 +132,7 @@ agent
             has_label = False
             
             if input_id:
-                label = soup.find("label", {"for": input_id})c3
+                label = soup.find("label", {"for": input_id})
                 if label:
                     has_label = True
             
@@ -154,64 +153,68 @@ agent
         
         # Check for elements with inline styles that might have low contrast
         elements_with_style = soup.find_all(style=True)
-        
         for element in elements_with_style:
-            style = element.get("style", "")
-            if "color:" in style and "background-color:" in style:
-                # This is a placeholder - real implementation would parse colors
-                # and compute contrast ratio
-                pass
+            style = element.get('style', '')
+            if 'color' in style and 'background' in style:
+                # This is a placeholder - real implementation would parse colors and calculate contrast
+                violations.append({
+                    "element": str(element)[:100] + "..." if len(str(element)) > 100 else str(element),
+                    "message": "Potential low contrast detected",
+                    "suggestion": "Ensure text has sufficient contrast ratio (4.5:1 for normal text, 3:1 for large text)"
+                })
         
         return violations
     
     def _check_missing_lang(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Check for missing lang attribute on html element."""
+        """Check for missing lang attribute on HTML element."""
         violations = []
         html_tag = soup.find("html")
         
         if html_tag and not html_tag.get("lang"):
             violations.append({
-                "element": "<html>",
+                "element": str(html_tag)[:100] + "..." if len(str(html_tag)) > 100 else str(html_tag),
                 "message": "HTML element missing lang attribute",
-                "suggestion": "Add lang attribute to <html> element, e.g., <html lang=\"en\">"
+                "suggestion": "Add lang attribute to <html> element (e.g., <html lang=\"en\">)"
             })
         
         return violations
     
     def _check_empty_links(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Check for empty links."""
+        """Check for links without discernible text."""
         violations = []
         links = soup.find_all("a")
         
         for link in links:
-            text = link.get_text(strip=True)
-            aria_label = link.get("aria-label")
-            title = link.get("title")
+            has_text = link.get_text(strip=True)
+            has_aria = link.get("aria-label") or link.get("aria-labelledby")
+            has_title = link.get("title")
+            has_img_alt = link.find("img", alt=True)
             
-            if not text and not aria_label and not title:
+            if not has_text and not has_aria and not has_title and not has_img_alt:
                 violations.append({
                     "element": str(link)[:100] + "..." if len(str(link)) > 100 else str(link),
                     "message": "Link has no discernible text",
-                    "suggestion": "Add text content, aria-label, or title attribute"
+                    "suggestion": "Add text content, aria-label, or an image with alt text"
                 })
         
         return violations
     
     def _check_empty_buttons(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Check for empty buttons."""
+        """Check for buttons without discernible text."""
         violations = []
         buttons = soup.find_all("button")
         
         for button in buttons:
-            text = button.get_text(strip=True)
-            aria_label = button.get("aria-label")
-            title = button.get("title")
+            has_text = button.get_text(strip=True)
+            has_aria = button.get("aria-label") or button.get("aria-labelledby")
+            has_title = button.get("title")
+            has_value = button.get("value")
             
-            if not text and not aria_label and not title:
+            if not has_text and not has_aria and not has_title and not has_value:
                 violations.append({
                     "element": str(button)[:100] + "..." if len(str(button)) > 100 else str(button),
                     "message": "Button has no discernible text",
-                    "suggestion": "Add text content, aria-label, or title attribute"
+                    "suggestion": "Add text content, aria-label, or value attribute"
                 })
         
         return violations
@@ -230,16 +233,16 @@ agent
         
         return violations
     
-    def _check_autofocus_inputs(self, soup: BeautifulSoup) -> Set[Dict[str, Any]]:
+    def _check_autofocus_inputs(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
         """Check for inputs with autofocus attribute."""
         violations = []
-        inputs = soup.find_all(attrs={"autofocus": True})
+        autofocus_elements = soup.find_all(attrs={"autofocus": True})
         
-        for inp in inputs:
+        for element in autofocus_elements:
             violations.append({
-                "element": str(inp)[:100] + "..." if len(str(inp)) > 100 else str(inp),
+                "element": str(element)[:100] + "..." if len(str(element)) > 100 else str(element),
                 "message": "Element has autofocus attribute",
-                "suggestion": "Remove autofocus attribute to prevent unexpected focus changes"
+                "suggestion": "Remove autofocus to avoid disorienting users"
             })
         
         return violations
@@ -248,41 +251,47 @@ agent
         """Fetch a page and return BeautifulSoup object."""
         try:
             headers = {"User-Agent": self.user_agent}
-            response = requests.get(url, headers=headers, timeout=self.timeout)
+            response = requests.get(url, timeout=self.timeout, headers=headers)
             response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, "lxml")
-            return soup
+            return BeautifulSoup(response.text, "lxml")
         except Exception as e:
-            logger.error(f"Failed to fetch {url}: {e}")
+            logger.error(f"Error fetching {url}: {e}")
             return None
     
-    def _extract_links(self, soup: BeautifulSoup, current_url: str) -> List[str]:
-        """Extract links from page for crawling."""
-        links = []
+    def _extract_links(self, soup: BeautifulSoup, current_url: str) -> Set[str]:
+        """Extract internal links from page."""
+        links = set()
+        base_domain = urlparse(current_url).netloc
+        
         for a_tag in soup.find_all("a", href=True):
             href = a_tag["href"]
-            absolute_url = urljoin(current_url, href)
-            parsed = urlparse(absolute_url)
             
-            # Only follow links within the same domain
-            if parsed.netloc == self.base_domain and parsed.scheme in ["http", "https"]:
+            # Skip empty, fragment, and non-http links
+            if not href or href.startswith("#") or href.startswith("javascript:") or href.startswith("mailto:"):
+                continue
+            
+            # Convert relative URLs to absolute
+            full_url = urljoin(current_url, href)
+            parsed = urlparse(full_url)
+            
+            # Only include links from same domain
+            if parsed.netloc == base_domain and parsed.scheme in ["http", "https"]:
                 # Remove fragment
-                clean_url = parsed._replace(fragment="").geturl()
-                links.append(clean_url)
+                clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+                if parsed.query:
+                    clean_url += f"?{parsed.query}"
+                links.add(clean_url)
         
         return links
     
-    def _audit_page(self, url: str) -> AuditResult:
-        """Audit a single page for WCAG compliance."""
-        logger.info(f"Auditing: {url}")
-        
+    def _check_page(self, url: str) -> AuditResult:
+        """Check a single page for WCAG compliance."""
         soup = self._get_page(url)
         if not soup:
             return AuditResult(
                 url=url,
-                violations=[{"rule": "fetch-error", "message": "Failed to fetch page"}],
-                warnings=[],
+                violations=[],
+                warnings=[{"rule": "fetch-error", "message": f"Could not fetch {url}"}],
                 passed=[]
             )
         
@@ -290,39 +299,32 @@ agent
         warnings = []
         passed = []
         
-        # Run all WCAG checks
-        for rule_name, rule_data in self.wcag_rules.items():
-            check_func = rule_data["check"]
-            try:
-                rule_violations = check_func(soup)
-                
-                if rule_violations:
-                    for violation in rule_violations:
-                        violation.update({
-                            "rule": rule_name,
-                            "wcag": rule_data["wcag"],
-                            "level": rule_data["level"],
-                            "impact": rule_data["impact"],
-                            "description": rule_data["description"]
-                        })
-                    violations.extend(rule_violations)
-                else:
-                    passed.append({
+        # Run all checks
+        for rule_name, rule_info in self.wcag_rules.items():
+            check_func = rule_info["check"]
+            rule_violations = check_func(soup)
+            
+            if rule_violations:
+                for violation in rule_violations:
+                    violations.append({
                         "rule": rule_name,
-                        "wcag": rule_data["wcag"],
-                        "level": rule_data["level"],
-                        "description": rule_data["description"]
+                        "wcag": rule_info["wcag"],
+                        "level": rule_info["level"],
+                        "impact": rule_info["impact"],
+                        "description": rule_info["description"],
+                        **violation
                     })
-            except Exception as e:
-                logger.error(f"Error checking rule {rule_name}: {e}")
-                warnings.append({
+            else:
+                passed.append({
                     "rule": rule_name,
-                    "message": f"Check failed: {e}"
+                    "wcag": rule_info["wcag"],
+                    "level": rule_info["level"],
+                    "description": rule_info["description"]
                 })
         
         # Get page title
         title_tag = soup.find("title")
-        page_title = title_tag.get_text(strip=True) if title_tag else None
+        page_title = title_tag.get_text(strip=True) if title_tag else "No title"
         
         return AuditResult(
             url=url,
@@ -334,55 +336,65 @@ agent
         )
     
     def audit(self) -> Dict[str, Any]:
-        """Perform a full website audit."""
+        """Perform full website audit."""
         logger.info(f"Starting audit of {self.base_url}")
         
-        urls_to_visit = [self.base_url]
-        current_depth = 0
+        # Initialize with base URL
+        urls_to_visit = [(self.base_url, 0)]  # (url, depth)
         pages_audited = 0
+        all_violations = []
+        all_warnings = []
+        all_passed = []
+        violation_types = {}
+        pages = []
         
-        while urls_to_visit and pages_audited < self.max_pages and current_depth <= self.max_depth:
-            current_url = urls_to_visit.pop(0)
+        while urls_to_visit and pages_audited < self.max_pages:
+            current_url, depth = urls_to_visit.pop(0)
             
+            # Skip if already visited
             if current_url in self.visited_urls:
                 continue
             
+            # Mark as visited
             self.visited_urls.add(current_url)
             pages_audited += 1
             
-            # Audit the page
-            result = self._audit_page(current_url)
+            logger.info(f"Checking page {pages_audited}: {current_url}")
+            
+            # Check the page
+            result = self._check_page(current_url)
             self.results.append(result)
             
-            # Extract links for next depth level if we haven't reached max depth
-            if current_depth < self.max_depth:
+            # Collect violations, warnings, and passed checks
+            all_violations.extend(result.violations)
+            all_warnings.extend(result.warnings)
+            all_passed.extend(result.passed)
+            
+            # Count violation types
+            for violation in result.violations:
+                rule = violation.get("rule")
+                if rule:
+                    violation_types[rule] = violation_types.get(rule, 0) + 1
+            
+            # Add page info
+            pages.append({
+                "url": current_url,
+                "title": result.page_title,
+                "violations_count": len(result.violations),
+                "warnings_count": len(result.warnings),
+                "passed_count": len(result.passed)
+            })
+            
+            # Extract links for further crawling if within depth limit
+            if depth < self.max_depth:
                 soup = self._get_page(current_url)
                 if soup:
                     new_links = self._extract_links(soup, current_url)
                     for link in new_links:
-                        if link not in self.visited_urls and link not in urls_to_visit:
-                            urls_to_visit.append(link)
-            
-            # Increment depth after processing all URLs at current depth
-            if not urls_to_visit or urls_to_visit[0] in self.visited_urls:
-                current_depth += 1
+                        if link not in self.visited_urls:
+                            urls_to_visit.append((link, depth + 1))
         
-        # Compile results
-        all_violations = []
-        all_warnings = []
-        all_passed = []
-        
-        for result in self.results:
-            all_violations.extend(result.violations)
-            all_warnings.extend(result.warnings)
-            all_passed.extend(result.passed)
-        
-        # Count violations by type
-        violation_types = {}
-        for violation in all_violations:
-            rule = violation.get("rule", "unknown")
-            violation_types[rule] = violation_types.get(rule, 0) + 1
-        
+        # Compile final results
         return {
             "base_url": self.base_url,
             "pages_audited": pages_audited,
@@ -393,13 +405,5 @@ agent
             "violations": all_violations,
             "warnings": all_warnings,
             "passed": all_passed,
-            "pages": [
-                {
-                    "url": r.url,
-                    "title": r.page_title,
-                    "violations_count": len(r.violations),
-                    "warnings_count": len(r.warnings),
-                    "passed_count": len(r.passed)
-                } for r in self.results
-            ]
+            "pages": pages
         }

@@ -9,11 +9,12 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from wcag_auditor.auditor import Auditor
 from wcag_auditor.reporter import Reporter
+from wcag_auditor import __version__
 
 console = Console()
 
 @click.group()
-@click.version_option()
+@click.version_option(version=__version__, prog_name="wcag-auditor")
 def cli():
     """WCAG Auditor - Audit websites for WCAG 2.2 compliance."""
     pass
@@ -111,7 +112,7 @@ def check(url: str, timeout: int):
 
 @cli.command()
 @click.argument("url")
-@click.option("--depth", "-d", default=1, help="Maximum crawl depth (default: : 1)")
+@click.option("--depth", "-d", default=1, help="Maximum crawl depth (default: 1)")
 @click.option("--max-pages", "-m", default=10, help="Maximum number of pages to audit (default: 10)")
 @click.option("--timeout", "-t", default=30, help="Request timeout in seconds (default: 30)")
 def summary(url: str, depth: int, max_pages: int, timeout: int):
@@ -119,7 +120,7 @@ def summary(url: str, depth: int, max_pages: int, timeout: int):
     try:
         auditor = Auditor(
             base_url=url,
-            max_depth=深度,
+            max_depth=depth,
             max_pages=max_pages,
             timeout=timeout
         )
@@ -139,7 +140,7 @@ def summary(url: str, depth: int, max_pages: int, timeout: int):
         if violation_types:
             table = Table(title="Violation Types")
             table.add_column("Type", style="cyan")
-            table.add_column("Count", style="magenta", justify="right")c3
+            table.add_column("Count", style="magenta", justify="right")
             
             for vtype, count in violation_types.items():
                 table.add_row(vtype, str(count))

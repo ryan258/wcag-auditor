@@ -141,7 +141,7 @@ class TestAuditor:
         auditor = Auditor("https://example.com")
         violations = auditor._check_missing_title(soup)
         
-        assert len(violations) that 1
+        assert len(violations) == 1
         assert "Page missing title element" in violations[0]["message"]
     
     def test_extract_links(self):
