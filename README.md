@@ -8,7 +8,7 @@ A command-line tool that audits websites for WCAG 2.2 compliance and generates a
 - Generates detailed reports with specific fix recommendations
 - Supports multiple output formats (JSON, HTML, Markdown)
 - Configurable depth and page limits
-- Respects robots.txt and rate limiting
+- Configurable user agent string
 
 ## Installation
 

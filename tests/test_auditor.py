@@ -165,3 +165,110 @@ class TestAuditor:
         assert "https://example.com/page2" in links
         assert "https://other.com/page3" not in links
         assert "https://example.com#section" not in links
+
+    def test_alt_empty_string_is_valid(self):
+        """alt="" is the WCAG-correct pattern for decorative images."""
+        html = """
+        <html>
+            <body>
+                <img src="decorative.jpg" alt="">
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        auditor = Auditor("https://example.com")
+        violations = auditor._check_missing_alt_text(soup)
+
+        assert len(violations) == 0
+
+    def test_implicit_label_is_valid(self):
+        """An input wrapped in <label> should not be flagged."""
+        html = """
+        <html>
+            <body>
+                <label>Name <input type="text"></label>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        auditor = Auditor("https://example.com")
+        violations = auditor._check_missing_labels(soup)
+
+        assert len(violations) == 0
+
+    def test_link_with_empty_alt_img_is_violation(self):
+        """<a><img alt=""></a> has no discernible text and must be flagged."""
+        html = """
+        <html>
+            <body>
+                <a href="/page"><img src="icon.png" alt=""></a>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        auditor = Auditor("https://example.com")
+        violations = auditor._check_empty_links(soup)
+
+        assert len(violations) == 1
+
+    def test_link_with_nonempty_alt_img_passes(self):
+        """<a><img alt="Home"></a> provides discernible text."""
+        html = """
+        <html>
+            <body>
+                <a href="/"><img src="logo.png" alt="Home"></a>
+            </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "lxml")
+        auditor = Auditor("https://example.com")
+        violations = auditor._check_empty_links(soup)
+
+        assert len(violations) == 0
+
+    @patch('wcag_auditor.auditor.requests.get')
+    def test_contrast_skipped_as_warning(self, mock_get):
+        """Contrast check must surface as a skipped warning, not a pass."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.text = "<html lang='en'><head><title>T</title></head><body></body></html>"
+        mock_get.return_value = mock_response
+
+        auditor = Auditor("https://example.com", max_depth=0)
+        results = auditor.audit()
+
+        passed_rules = [p["rule"] for p in results["passed"]]
+        warning_rules = [w["rule"] for w in results["warnings"]]
+
+        assert "low-contrast" not in passed_rules
+        assert "low-contrast" in warning_rules
+
+    @patch('wcag_auditor.auditor.requests.get')
+    def test_contrast_warning_emitted_once_on_multipage(self, mock_get):
+        """The low-contrast skip notice must appear exactly once, not per page."""
+        page_html = "<html lang='en'><head><title>T</title></head><body><a href='/p2'>link</a></body></html>"
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.text = page_html
+        mock_get.return_value = mock_response
+
+        auditor = Auditor("https://example.com", max_depth=1, max_pages=5)
+        results = auditor.audit()
+
+        contrast_warnings = [w for w in results["warnings"] if w["rule"] == "low-contrast"]
+        assert len(contrast_warnings) == 1
+
+    @patch('wcag_auditor.auditor.requests.get')
+    def test_audit_resets_state_on_reuse(self, mock_get):
+        """Reusing an Auditor instance should not carry stale state."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.text = "<html lang='en'><head><title>T</title></head><body></body></html>"
+        mock_get.return_value = mock_response
+
+        auditor = Auditor("https://example.com", max_depth=0)
+        result1 = auditor.audit()
+        assert result1["pages_audited"] == 1
+
+        result2 = auditor.audit()
+        assert result2["pages_audited"] == 1  # must not be 0

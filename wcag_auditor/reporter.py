@@ -1,7 +1,13 @@
 """Report generation for WCAG audit results."""
+import html
 import json
 from typing import Dict, Any
 from datetime import datetime
+
+
+def _esc(value: Any) -> str:
+    """HTML-escape a value for safe interpolation into markup."""
+    return html.escape(str(value))
 
 class Reporter:
     """Generate reports from audit results."""
@@ -55,7 +61,7 @@ class Reporter:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WCAG Audit Report - {self.results.get('base_url', 'Unknown')}</title>
+    <title>WCAG Audit Report - {_esc(self.results.get('base_url', 'Unknown'))}</title>
     <style>
         body {{ font-family: Arial, sans-serif; margin: 20px; }}
         .summary {{ background: #f5f5f5; padding: 15px; border-radius: 5px; }}
@@ -74,10 +80,11 @@ class Reporter:
     <h1>WCAG Audit Report</h1>
     <div class="summary">
         <h2>Summary</h2>
-        <p><strong>URL:</strong> {self.results.get('base_url', 'Unknown')}</p>
+        <p><strong>URL:</strong> {_esc(self.results.get('base_url', 'Unknown'))}</p>
         <p><strong>Pages Audited:</strong> {self.results.get('pages_audited', 0)}</p>
         <p><strong>Total Violations:</strong> {self.results.get('total_violations', 0)}</p>
-        <p><strong>Total Warnings:</strong> {self.results.get('total_warnings', 0)}</n        <p><strong>Total Passed:</strong> {self.results.get('total_passed', 0)}</p>
+        <p><strong>Total Warnings:</strong> {self.results.get('total_warnings', 0)}</p>
+        <p><strong>Total Passed:</strong> {self.results.get('total_passed', 0)}</p>
         <p><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
     </div>
     
@@ -85,15 +92,15 @@ class Reporter:
     """
         
         for violation in violations:
-            impact = violation.get('impact', 'unknown')
+            impact = _esc(violation.get('impact', 'unknown'))
             html += f"""
     <div class="violation">
-        <div class="rule">{violation.get('rule', 'Unknown')} <span class="impact impact-{impact}">{impact.upper()}</span></div>
-        <p><strong>Description:</strong> {violation.get('description', 'No description')}</p>
-        <p><strong>WCAG:</strong> {violation.get('wcag', 'Unknown')} (Level {violation.get('level', 'Unknown')})</p>
-        <p><strong>Element:</strong> <code>{violation.get('element', 'Unknown')}</code></p>
-        <p><strong>Message:</strong> {violation.get('message', 'No message')}</p>
-        <p><strong>Suggestion:</strong> {violation.get('suggestion', 'No suggestion')}</p>
+        <div class="rule">{_esc(violation.get('rule', 'Unknown'))} <span class="impact impact-{impact}">{impact.upper()}</span></div>
+        <p><strong>Description:</strong> {_esc(violation.get('description', 'No description'))}</p>
+        <p><strong>WCAG:</strong> {_esc(violation.get('wcag', 'Unknown'))} (Level {_esc(violation.get('level', 'Unknown'))})</p>
+        <p><strong>Element:</strong> <code>{_esc(violation.get('element', 'Unknown'))}</code></p>
+        <p><strong>Message:</strong> {_esc(violation.get('message', 'No message'))}</p>
+        <p><strong>Suggestion:</strong> {_esc(violation.get('suggestion', 'No suggestion'))}</p>
     </div>
     """
         
@@ -104,8 +111,8 @@ class Reporter:
         for warning in warnings:
             html += f"""
     <div class="warning">
-        <div class="rule">{warning.get('rule', 'Unknown')}</div>
-        <p><strong>Message:</strong> {warning.get('message', 'No message')}</p>
+        <div class="rule">{_esc(warning.get('rule', 'Unknown'))}</div>
+        <p><strong>Message:</strong> {_esc(warning.get('message', 'No message'))}</p>
     </div>
     """
         
@@ -116,8 +123,8 @@ class Reporter:
         for passed_item in passed:
             html += f"""
     <div class="passed">
-        <div class="rule">{passed_item.get('rule', 'Unknown')}</div>
-        <p><strong>Description:</ WCAG {passed_item.get('wcag', 'Unknown')} (Level {passed_item.get('level', 'Unknown')})</p>
+        <div class="rule">{_esc(passed_item.get('rule', 'Unknown'))}</div>
+        <p><strong>Description:</strong> {_esc(passed_item.get('description', 'No description'))} — WCAG {_esc(passed_item.get('wcag', 'Unknown'))} (Level {_esc(passed_item.get('level', 'Unknown'))})</p>
     </div>
     """
         

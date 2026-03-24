@@ -60,13 +60,6 @@ class Auditor:
                 "impact": "serious",
                 "check": self._check_missing_labels
             },
-            "low-contrast": {
-                "description": "Text must have sufficient contrast ratio",
-                "wcag": "1.4.3",
-                "level": "AA",
-                "impact": "serious",
-                "check": self._check_low_contrast
-            },
             "missing-lang": {
                 "description": "Page must have a lang attribute",
                 "wcag": "3.1.1",
@@ -105,64 +98,62 @@ class Auditor:
         }
     
     def _check_missing_alt_text(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Check for images without alt text."""
+        """Check for images without alt text.
+
+        Per WCAG 1.1.1, ``alt=""`` is the correct way to mark a
+        decorative image, so only images that are completely *missing*
+        the ``alt`` attribute (and lack ``role="presentation"``) are
+        violations.
+        """
         violations = []
         images = soup.find_all("img")
-        
+
         for img in images:
-            if not img.get("alt") and not img.get("role") == "presentation":
+            has_alt = img.has_attr("alt")  # alt="" is intentional and valid
+            is_presentational = img.get("role") == "presentation"
+            if not has_alt and not is_presentational:
                 violations.append({
                     "element": str(img)[:100] + "..." if len(str(img)) > 100 else str(img),
                     "message": "Image missing alt attribute",
                     "suggestion": "Add descriptive alt text or role=\"presentation\" for decorative images"
                 })
-        
+
         return violations
     
     def _check_missing_labels(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Check for form inputs without labels."""
+        """Check for form inputs without labels.
+
+        Supports explicit ``<label for="id">`` associations *and*
+        implicit wrapping labels (``<label>Name <input></label>``).
+        """
         violations = []
         inputs = soup.find_all(["input", "select", "textarea"])
-        
+
         for inp in inputs:
             if inp.get("type") in ["hidden", "submit", "button", "reset", "image"]:
                 continue
-            
+
+            # Explicit label via for/id
             input_id = inp.get("id")
             has_label = False
-            
             if input_id:
                 label = soup.find("label", {"for": input_id})
                 if label:
                     has_label = True
-            
+
+            # Implicit label — input is a descendant of <label>
+            if not has_label:
+                parent_label = inp.find_parent("label")
+                if parent_label:
+                    has_label = True
+
             if not has_label and not inp.get("aria-label") and not inp.get("aria-labelledby"):
                 violations.append({
                     "element": str(inp)[:100] + "..." if len(str(inp)) > 100 else str(inp),
                     "message": "Form input missing label",
-                    "suggestion": "Add a <label> element with a 'for' attribute or use aria-label"
+                    "suggestion": "Add a <label> element with a 'for' attribute, wrap the input in a <label>, or use aria-label"
                 })
-        
-        return violations
-    
-    def _check_low_contrast(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Check for text with low contrast (simplified check)."""
-        # This is a simplified implementation. A real implementation would
-        # need to compute actual contrast ratios based on foreground/background colors.
-        violations = []
-        
-        # Check for elements with inline styles that might have low contrast
-        elements_with_style = soup.find_all(style=True)
-        for element in elements_with_style:
-            style = element.get('style', '')
-            if 'color' in style and 'background' in style:
-                # This is a placeholder - real implementation would parse colors and calculate contrast
-                violations.append({
-                    "element": str(element)[:100] + "..." if len(str(element)) > 100 else str(element),
-                    "message": "Potential low contrast detected",
-                    "suggestion": "Ensure text has sufficient contrast ratio (4.5:1 for normal text, 3:1 for large text)"
-                })
-        
+
         return violations
     
     def _check_missing_lang(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
@@ -180,23 +171,31 @@ class Auditor:
         return violations
     
     def _check_empty_links(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Check for links without discernible text."""
+        """Check for links without discernible text.
+
+        An ``<img alt="">`` inside a link does **not** provide a
+        discernible name — the alt text must be non-empty.
+        """
         violations = []
         links = soup.find_all("a")
-        
+
         for link in links:
             has_text = link.get_text(strip=True)
             has_aria = link.get("aria-label") or link.get("aria-labelledby")
             has_title = link.get("title")
-            has_img_alt = link.find("img", alt=True)
-            
+            # Only count an img as providing a name if alt is non-empty
+            has_img_alt = any(
+                img.get("alt", "").strip()
+                for img in link.find_all("img")
+            )
+
             if not has_text and not has_aria and not has_title and not has_img_alt:
                 violations.append({
                     "element": str(link)[:100] + "..." if len(str(link)) > 100 else str(link),
                     "message": "Link has no discernible text",
-                    "suggestion": "Add text content, aria-label, or an image with alt text"
+                    "suggestion": "Add text content, aria-label, or an image with non-empty alt text"
                 })
-        
+
         return violations
     
     def _check_empty_buttons(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
@@ -284,8 +283,12 @@ class Auditor:
         
         return links
     
-    def _check_page(self, url: str) -> AuditResult:
-        """Check a single page for WCAG compliance."""
+    def _check_page(self, url: str) -> tuple:
+        """Check a single page for WCAG compliance.
+
+        Returns ``(AuditResult, soup)`` so callers can reuse the parsed
+        page without refetching.
+        """
         soup = self._get_page(url)
         if not soup:
             return AuditResult(
@@ -293,7 +296,7 @@ class Auditor:
                 violations=[],
                 warnings=[{"rule": "fetch-error", "message": f"Could not fetch {url}"}],
                 passed=[]
-            )
+            ), None
         
         violations = []
         warnings = []
@@ -333,12 +336,16 @@ class Auditor:
             passed=passed,
             page_title=page_title,
             timestamp=time.strftime("%Y-%m-%d %H:%M:%S")
-        )
+        ), soup
     
     def audit(self) -> Dict[str, Any]:
         """Perform full website audit."""
         logger.info(f"Starting audit of {self.base_url}")
-        
+
+        # Reset state so the auditor can be reused safely
+        self.visited_urls = set()
+        self.results = []
+
         # Initialize with base URL
         urls_to_visit = [(self.base_url, 0)]  # (url, depth)
         pages_audited = 0
@@ -347,35 +354,35 @@ class Auditor:
         all_passed = []
         violation_types = {}
         pages = []
-        
+
         while urls_to_visit and pages_audited < self.max_pages:
             current_url, depth = urls_to_visit.pop(0)
-            
+
             # Skip if already visited
             if current_url in self.visited_urls:
                 continue
-            
+
             # Mark as visited
             self.visited_urls.add(current_url)
             pages_audited += 1
-            
+
             logger.info(f"Checking page {pages_audited}: {current_url}")
-            
-            # Check the page
-            result = self._check_page(current_url)
+
+            # Check the page (returns the parsed soup to avoid refetching)
+            result, soup = self._check_page(current_url)
             self.results.append(result)
-            
+
             # Collect violations, warnings, and passed checks
             all_violations.extend(result.violations)
             all_warnings.extend(result.warnings)
             all_passed.extend(result.passed)
-            
+
             # Count violation types
             for violation in result.violations:
                 rule = violation.get("rule")
                 if rule:
                     violation_types[rule] = violation_types.get(rule, 0) + 1
-            
+
             # Add page info
             pages.append({
                 "url": current_url,
@@ -384,16 +391,20 @@ class Auditor:
                 "warnings_count": len(result.warnings),
                 "passed_count": len(result.passed)
             })
-            
+
             # Extract links for further crawling if within depth limit
-            if depth < self.max_depth:
-                soup = self._get_page(current_url)
-                if soup:
-                    new_links = self._extract_links(soup, current_url)
-                    for link in new_links:
-                        if link not in self.visited_urls:
-                            urls_to_visit.append((link, depth + 1))
+            if depth < self.max_depth and soup:
+                new_links = self._extract_links(soup, current_url)
+                for link in new_links:
+                    if link not in self.visited_urls:
+                        urls_to_visit.append((link, depth + 1))
         
+        # Contrast analysis requires a rendering engine — emit once per audit
+        all_warnings.append({
+            "rule": "low-contrast",
+            "message": "Contrast check skipped — requires a browser-level rendering engine to compute actual ratios (WCAG 1.4.3)"
+        })
+
         # Compile final results
         return {
             "base_url": self.base_url,

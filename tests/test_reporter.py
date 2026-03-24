@@ -109,5 +109,36 @@ class TestReporter:
         """Test invalid format falls back to text."""
         reporter = Reporter(self.sample_results)
         report = reporter.generate("invalid")
-        
+
         assert "WCAG AUDIT REPORT" in report
+
+    def test_html_no_malformed_tags(self):
+        """HTML report must not contain broken tags from earlier bugs."""
+        reporter = Reporter(self.sample_results)
+        report = reporter.generate("html")
+
+        # The old bugs produced "</n" and "</ WCAG"
+        assert "</n" not in report
+        assert "</ " not in report
+
+    def test_html_escapes_untrusted_content(self):
+        """Page-derived values must be HTML-escaped in the report."""
+        evil_results = dict(self.sample_results)
+        evil_results["violations"] = [
+            {
+                "rule": "xss-test",
+                "wcag": "1.1.1",
+                "level": "A",
+                "impact": "critical",
+                "description": "test",
+                "element": '<img src=x onerror="alert(1)">',
+                "message": "<script>alert('xss')</script>",
+                "suggestion": "fix it"
+            }
+        ]
+        reporter = Reporter(evil_results)
+        report = reporter.generate("html")
+
+        assert "<script>" not in report
+        assert "&lt;script&gt;" in report
+        assert 'onerror="alert(1)"' not in report
