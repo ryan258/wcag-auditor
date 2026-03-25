@@ -13,8 +13,15 @@ A command-line tool that audits websites for WCAG 2.2 compliance and generates a
 ## Installation
 
 ```bash
-pip install -e .
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
 ```
+
+If you already have a project virtual environment, activate it first and then
+install the package. On macOS/Homebrew Python, running `pip install -e .`
+directly against the system interpreter will fail with an
+`externally-managed-environment` error.
 
 ## Usage
 
@@ -32,10 +39,17 @@ wcag-auditor summary https://example.com
 wcag-auditor check https://example.com/page
 ```
 
+If you do not want to activate the virtual environment, you can run the
+executable directly:
+
+```bash
+.venv/bin/wcag-auditor audit https://example.com
+```
+
 ## Development
 
 ```bash
-# Install development dependencies
+# Install development dependencies inside an activated virtual environment
 pip install -e ".[dev]"
 
 # Run tests
