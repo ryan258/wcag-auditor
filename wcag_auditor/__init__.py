@@ -2,3 +2,4 @@
 
 __version__ = "0.1.0"
 __author__ = "WCAG Auditor Contributors"
+DEFAULT_USER_AGENT = f"WCAG-Auditor/{__version__}"

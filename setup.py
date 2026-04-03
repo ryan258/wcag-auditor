@@ -1,16 +1,20 @@
+import re
+from pathlib import Path
 from setuptools import setup, find_packages
 
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+ROOT = Path(__file__).parent
+README = (ROOT / "README.md").read_text(encoding="utf-8")
+INIT = (ROOT / "wcag_auditor" / "__init__.py").read_text(encoding="utf-8")
+VERSION = re.search(r'^__version__ = "(?P<version>[^"]+)"$', INIT, re.MULTILINE).group("version")
 
 setup(
     name="wcag-auditor",
-    version="0.1.0",
+    version=VERSION,
     author="WCAG Auditor Contributors",
     description="CLI tool to audit websites for WCAG 2.2 compliance",
-    long_description=long_description,
+    long_description=README,
     long_description_content_type="text/markdown",
-    url="https://github.com/example/wcag-auditor",
+    url="https://github.com/ryan258/wcag-auditor",
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[
@@ -19,9 +23,7 @@ setup(
         "lxml>=4.9.0",
         "click>=8.1.0",
         "rich>=13.0.0",
-        "pyyaml>=6.0",
         "urllib3>=1.26.0",
-        "tqdm>=4.64.0"
     ],
     extras_require={
         "dev": [

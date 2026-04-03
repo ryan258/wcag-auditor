@@ -6,6 +6,7 @@ import time
 from typing import Dict, List, Set, Optional, Any
 from dataclasses import dataclass
 import logging
+from wcag_auditor import DEFAULT_USER_AGENT
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -24,7 +25,7 @@ class AuditResult:
 class Auditor:
     """Main auditor class for crawling and checking WCAG compliance."""
     
-    def __init__(self, base_url: str, max_depth: int = 2, max_pages: int = 50, timeout: int = 30, user_agent: str = "WCAG-Auditor/0.1.0"):
+    def __init__(self, base_url: str, max_depth: int = 2, max_pages: int = 50, timeout: int = 30, user_agent: str = DEFAULT_USER_AGENT):
         self.base_url = base_url
         self.max_depth = max_depth
         self.max_pages = max_pages

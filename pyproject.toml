@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wcag-auditor"
-version = "0.1.0"
+dynamic = ["version"]
 description = "CLI tool to audit websites for WCAG 2.2 compliance"
 readme = "README.md"
-license = {file = "MIT"}
+license = {file = "LICENSE"}
 requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -29,9 +29,7 @@ dependencies = [
     "lxml>=4.9.0",
     "click>=8.1.0",
     "rich>=13.0.0",
-    "pyyaml>=6.0",
     "urllib3>=1.26.0",
-    "tqdm>=4.64.0"
 ]
 
 [project.optional-dependencies]
@@ -44,3 +42,9 @@ dev = [
 
 [project.scripts]
 wcag-auditor = "wcag_auditor.cli:main"
+
+[project.urls]
+Repository = "https://github.com/ryan258/wcag-auditor"
+
+[tool.setuptools.dynamic]
+version = {attr = "wcag_auditor.__version__"}

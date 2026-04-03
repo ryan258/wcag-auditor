@@ -77,6 +77,40 @@ class TestCLI:
         
         assert result.exit_code == 0
         assert "missing-alt-text" in result.output
+        assert "2" in result.output
+
+    @patch('wcag_auditor.cli.Auditor')
+    def test_check_command_uses_violation_types_for_counts(self, mock_auditor_class):
+        """Check summary counts must come from aggregated violation_types."""
+        mock_auditor = MagicMock()
+        mock_auditor.audit.return_value = {
+            "base_url": "https://example.com",
+            "pages_audited": 1,
+            "total_violations": 2,
+            "total_warnings": 0,
+            "total_passed": 3,
+            "violation_types": {"missing-alt-text": 2},
+            "violations": [
+                {
+                    "rule": "missing-alt-text",
+                    "impact": "critical"
+                },
+                {
+                    "rule": "missing-alt-text",
+                    "impact": "critical"
+                }
+            ],
+            "warnings": [],
+            "passed": [],
+            "pages": []
+        }
+        mock_auditor_class.return_value = mock_auditor
+
+        result = self.runner.invoke(cli, ['check', 'https://example.com'])
+
+        assert result.exit_code == 0
+        assert "missing-alt-text" in result.output
+        assert "2" in result.output
     
     @patch('wcag_auditor.cli.Auditor')
     def test_summary_command(self, mock_auditor_class):

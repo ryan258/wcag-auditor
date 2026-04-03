@@ -1,6 +1,5 @@
 """Command-line interface for WCAG Auditor."""
 import click
-import json
 import sys
 from pathlib import Path
 from typing import Optional
@@ -9,7 +8,7 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from wcag_auditor.auditor import Auditor
 from wcag_auditor.reporter import Reporter
-from wcag_auditor import __version__
+from wcag_auditor import DEFAULT_USER_AGENT, __version__
 
 console = Console()
 
@@ -26,7 +25,7 @@ def cli():
 @click.option("--format", "-f", "output_format", type=click.Choice(["json", "html", "markdown", "text"]), default="text", help="Output format (default: text)")
 @click.option("--output", "-o", type=click.Path(), help="Output file path (default: stdout)")
 @click.option("--timeout", "-t", default=30, help="Request timeout in seconds (default: 30)")
-@click.option("--user-agent", "-u", default="WCAG-Auditor/0.1.0", help="User agent string for requests")
+@click.option("--user-agent", "-u", default=DEFAULT_USER_AGENT, help="User agent string for requests")
 def audit(url: str, depth: int, max_pages: int, output_format: str, output: Optional[str], timeout: int, user_agent: str):
     """Audit a website for WCAG 2.2 compliance."""
     try:
@@ -90,16 +89,26 @@ def check(url: str, timeout: int):
         # Show summary table
         violations = results.get("violations", [])
         if violations:
+            violation_types = results.get("violation_types") or {}
+            if not violation_types:
+                for violation in violations:
+                    rule = violation.get("rule", "Unknown")
+                    violation_types[rule] = violation_types.get(rule, 0) + 1
+
             table = Table(title="WCAG Violations Summary")
             table.add_column("Rule", style="cyan")
             table.add_column("Count", style="magenta", justify="right")
             table.add_column("Impact", style="red")
             
-            for violation in violations:
+            for rule, count in violation_types.items():
+                impact = next(
+                    (violation.get("impact", "Unknown") for violation in violations if violation.get("rule") == rule),
+                    "Unknown",
+                )
                 table.add_row(
-                    violation.get("rule", "Unknown"),
-                    str(violation.get("count", 0)),
-                    violation.get("impact", "Unknown")
+                    rule,
+                    str(count),
+                    impact,
                 )
             
             console.print(table)

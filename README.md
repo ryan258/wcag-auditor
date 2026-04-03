@@ -10,6 +10,12 @@ A command-line tool that audits websites for WCAG 2.2 compliance and generates a
 - Configurable depth and page limits
 - Configurable user agent string
 
+## Current Scope
+
+- Alpha rule coverage is intentionally narrow: 7 implemented checks plus 1 explicit skipped warning for contrast analysis.
+- Contrast ratios are not computed because the project has no browser/rendering engine.
+- Treat results as a fast static audit subset, not full WCAG 2.2 certification coverage.
+
 ## Installation
 
 ```bash

@@ -3,6 +3,7 @@ import html
 import json
 from typing import Dict, Any
 from datetime import datetime
+from wcag_auditor import __version__
 
 
 def _esc(value: Any) -> str:
@@ -32,7 +33,7 @@ class Reporter:
             "metadata": {
                 "generated_at": datetime.now().isoformat(),
                 "tool": "WCAG Auditor",
-                "version": "0.1.0"
+                "version": __version__
             },
             "summary": {
                 "base_url": self.results.get("base_url"),
