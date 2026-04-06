@@ -48,6 +48,29 @@ class TestCLI:
         assert result.exit_code == 0
         mock_auditor_class.assert_called_once()
         mock_auditor.audit.assert_called_once()
+
+    @patch('wcag_auditor.cli.Auditor')
+    def test_audit_command_supports_vpat(self, mock_auditor_class):
+        """VPAT output should be reachable from the public CLI."""
+        mock_auditor = MagicMock()
+        mock_auditor.audit.return_value = {
+            "base_url": "https://example.com",
+            "pages_audited": 1,
+            "total_violations": 0,
+            "total_warnings": 0,
+            "total_passed": 5,
+            "violation_types": {},
+            "violations": [],
+            "warnings": [],
+            "passed": [],
+            "pages": []
+        }
+        mock_auditor_class.return_value = mock_auditor
+
+        result = self.runner.invoke(cli, ['audit', 'https://example.com', '--format', 'vpat'])
+
+        assert result.exit_code == 0
+        assert "Accessibility Conformance Report" in result.output
     
     @patch('wcag_auditor.cli.Auditor')
     def test_check_command(self, mock_auditor_class):

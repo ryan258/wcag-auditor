@@ -241,3 +241,19 @@ def test_audit_execution_failure(mock_pw):
     
     warnings = [w["rule"] for w in res["warnings"]]
     assert "execution-failure" in warnings
+
+@patch('wcag_auditor.auditor.sync_playwright')
+def test_failed_navigation_does_not_count_as_audited_page(mock_pw):
+    """A fetch failure should warn, but not count as an audited page."""
+    mock_pw.return_value = MockPlaywright()
+
+    auditor = Auditor("https://example.com/error", max_pages=1)
+    results = auditor.audit()
+
+    assert results["pages_audited"] == 0
+    assert results["warnings"] == [
+        {
+            "rule": "fetch-error",
+            "message": "Could not fetch https://example.com/error: Mocked Network Error"
+        }
+    ]

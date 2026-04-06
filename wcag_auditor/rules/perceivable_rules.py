@@ -56,7 +56,7 @@ class TimeBasedMediaRule(AbstractRule):
     def metadata(self) -> RuleMetadata:
         return RuleMetadata(
             id="time-based-media",
-            description="Video and audio elements must have caption and description tracks",
+            description="Prerecorded synchronized video must provide captions",
             wcag_criterion="1.2.2",
             level="A",
             impact="serious",
@@ -65,7 +65,7 @@ class TimeBasedMediaRule(AbstractRule):
     
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
         violations = []
-        locators = page.locator("video, audio").all()
+        locators = page.locator("video").all()
         for loc in locators:
             tag = loc.evaluate("el => el.tagName.toLowerCase()")
             
@@ -73,7 +73,7 @@ class TimeBasedMediaRule(AbstractRule):
                 const tracks = el.querySelectorAll('track');
                 for (let track of tracks) {
                     const kind = track.getAttribute('kind');
-                    if (kind === 'captions' || kind === 'descriptions' || kind === 'subtitles') {
+                    if (kind === 'captions' || kind === 'subtitles') {
                         return true;
                     }
                 }
@@ -84,8 +84,8 @@ class TimeBasedMediaRule(AbstractRule):
                 html_snippet = loc.evaluate("el => el.outerHTML")
                 violations.append({
                     "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
-                    "message": f"Media element <{tag}> is missing closed captions or descriptions track",
-                    "suggestion": "Add a <track kind='captions'> or <track kind='descriptions'> to ensure accessibility"
+                    "message": f"Media element <{tag}> is missing a captions track",
+                    "suggestion": "Add a <track kind='captions'> or <track kind='subtitles'> to provide synchronized captions"
                 })
         return violations
 
@@ -191,16 +191,74 @@ class FocusAppearanceRule(AbstractRule):
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
         violations = []
         locators = page.locator("a[href], button, input, select, textarea, [tabindex='0']").all()
-        # Verify that focus outline is not removed entirely (outline: none) without fallback
         for loc in locators:
-            is_hidden = loc.evaluate("""el => {
-                // Focus styling is often defined iteratively. We check if outline is disabled.
+            page.evaluate("document.activeElement?.blur()")
+            before_style = loc.evaluate("""el => {
                 const style = window.getComputedStyle(el);
-                return style.outlineStyle === 'none' && style.boxShadow === 'none';
+                return {
+                    outlineStyle: style.outlineStyle,
+                    outlineWidth: style.outlineWidth,
+                    boxShadow: style.boxShadow,
+                    backgroundColor: style.backgroundColor,
+                    borderTopColor: style.borderTopColor,
+                    borderRightColor: style.borderRightColor,
+                    borderBottomColor: style.borderBottomColor,
+                    borderLeftColor: style.borderLeftColor,
+                    borderTopWidth: style.borderTopWidth,
+                    borderRightWidth: style.borderRightWidth,
+                    borderBottomWidth: style.borderBottomWidth,
+                    borderLeftWidth: style.borderLeftWidth
+                };
             }""")
+            focused_style = loc.evaluate("""el => {
+                el.focus({preventScroll: true, focusVisible: true});
+                const style = window.getComputedStyle(el);
+                return {
+                    outlineStyle: style.outlineStyle,
+                    outlineWidth: style.outlineWidth,
+                    boxShadow: style.boxShadow,
+                    backgroundColor: style.backgroundColor,
+                    borderTopColor: style.borderTopColor,
+                    borderRightColor: style.borderRightColor,
+                    borderBottomColor: style.borderBottomColor,
+                    borderLeftColor: style.borderLeftColor,
+                    borderTopWidth: style.borderTopWidth,
+                    borderRightWidth: style.borderRightWidth,
+                    borderBottomWidth: style.borderBottomWidth,
+                    borderLeftWidth: style.borderLeftWidth,
+                    focused: document.activeElement === el
+                };
+            }""")
+
+            has_outline = (
+                focused_style["outlineStyle"] != "none"
+                and focused_style["outlineWidth"] != "0px"
+            )
+            has_box_shadow = focused_style["boxShadow"] != "none"
+            has_background_change = (
+                focused_style["backgroundColor"] != before_style["backgroundColor"]
+            )
+            has_border_change = any(
+                focused_style[key] != before_style[key]
+                for key in [
+                    "borderTopColor",
+                    "borderRightColor",
+                    "borderBottomColor",
+                    "borderLeftColor",
+                    "borderTopWidth",
+                    "borderRightWidth",
+                    "borderBottomWidth",
+                    "borderLeftWidth",
+                ]
+            )
+            has_visible_indicator = (
+                focused_style["focused"]
+                and (has_outline or has_box_shadow or has_background_change or has_border_change)
+            )
+
+            page.evaluate("document.activeElement?.blur()")
             
-            # This is a naive heuristic for 'focus: outline none'
-            if is_hidden:
+            if not has_visible_indicator:
                 html_snippet = loc.evaluate("el => el.outerHTML")
                 violations.append({
                     "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,

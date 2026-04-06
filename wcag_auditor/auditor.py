@@ -142,12 +142,12 @@ class Auditor:
                             continue
 
                         self.visited_urls.add(current_url)
-                        pages_audited += 1
 
-                        logger.info(f"Checking page {pages_audited}: {current_url}")
+                        logger.info(f"Attempting page {pages_audited + 1}: {current_url}")
 
                         try:
                             page.goto(current_url, timeout=self.timeout * 1000, wait_until="load")
+                            pages_audited += 1
                             result = self._check_page(page, current_url)
                             self.results.append(result)
 

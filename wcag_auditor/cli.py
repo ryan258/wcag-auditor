@@ -22,7 +22,7 @@ def cli():
 @click.argument("url")
 @click.option("--depth", "-d", default=2, help="Maximum crawl depth (default: 2)")
 @click.option("--max-pages", "-m", default=50, help="Maximum number of pages to audit (default: 50)")
-@click.option("--format", "-f", "output_format", type=click.Choice(["json", "html", "markdown", "text"]), default="text", help="Output format (default: text)")
+@click.option("--format", "-f", "output_format", type=click.Choice(["json", "html", "markdown", "text", "vpat"]), default="text", help="Output format (default: text)")
 @click.option("--output", "-o", type=click.Path(), help="Output file path (default: stdout)")
 @click.option("--timeout", "-t", default=30, help="Request timeout in seconds (default: 30)")
 @click.option("--user-agent", "-u", default=DEFAULT_USER_AGENT, help="User agent string for requests")

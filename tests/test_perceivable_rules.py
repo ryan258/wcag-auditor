@@ -35,7 +35,21 @@ def test_time_based_media_rule(page):
     violations = rule.evaluate(page)
     
     assert len(violations) == 1
-    assert "missing closed captions" in violations[0]["message"]
+    assert "missing a captions track" in violations[0]["message"]
+
+def test_time_based_media_rule_ignores_audio_only(page):
+    html = """
+    <html>
+        <body>
+            <audio controls src="podcast.mp3"></audio>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = TimeBasedMediaRule()
+    violations = rule.evaluate(page)
+
+    assert violations == []
 
 def test_adaptable_landmarks_rule(page):
     html = """
@@ -92,6 +106,26 @@ def test_focus_appearance_rule(page):
     # We heuristically find outline: none
     assert len(violations) >= 1
     assert "no distinct focus indicator" in violations[0]["message"]
+
+def test_focus_appearance_rule_accepts_focus_visible_styles(page):
+    html = """
+    <html>
+        <head>
+            <style>
+                button { outline: none; }
+                button:focus-visible { box-shadow: 0 0 0 3px blue; }
+            </style>
+        </head>
+        <body>
+            <button>Good</button>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = FocusAppearanceRule()
+    violations = rule.evaluate(page)
+
+    assert violations == []
 
 def test_perceivable_rules_happy_path(page):
     html = """

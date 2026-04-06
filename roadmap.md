@@ -1,6 +1,6 @@
 # WCAG 2.2 Full Certification Coverage Roadmap
 
-This roadmap outlines the plan to expand the `wcag-auditor` to comprehensive WCAG 2.2 compliance certification at the A and AA levels. The tool currently has **18 active rules** across all four POUR categories with 42 passing tests.
+This roadmap outlines the plan to expand the `wcag-auditor` to comprehensive WCAG 2.2 compliance certification at the A and AA levels. The tool currently has **18 active rules** across all four POUR categories with 46 passing tests.
 
 ## Phase 1: Engine Foundation & Infrastructure Enhancement ✅
 
@@ -15,7 +15,7 @@ This roadmap outlines the plan to expand the `wcag-auditor` to comprehensive WCA
 Ensure users can perceive all information and user interface components.
 
 *   ~~**Guideline 1.1 Text Alternatives (1.1.1):**~~ `ComplexAltTextRule` — covers `<img>`, `<svg>`, `[role="img"]`, `aria-label`, `aria-labelledby`, and `<title>`. Legacy `MissingAltTextRule` retained as deprecated proxy.
-*   ~~**Guideline 1.2 Time-based Media (1.2.2):**~~ `TimeBasedMediaRule` — checks `<video>` and `<audio>` for `<track kind="captions|descriptions|subtitles">`.
+*   ~~**Guideline 1.2 Time-based Media (1.2.2):**~~ `TimeBasedMediaRule` — checks `<video>` elements for `<track kind="captions|subtitles">` (standalone `<audio>` is excluded per 1.2.2 scope).
     *   🔲 Verify caption tracks reference valid/populated sources (1.2.2 deep check).
     *   🔲 Audio description tracks (1.2.5).
 *   ~~**Guideline 1.3 Adaptable:**~~
@@ -23,7 +23,7 @@ Ensure users can perceive all information and user interface components.
     *   ~~(1.3.2)~~ `AdaptableReadingSeqRule` — flags positive `tabindex` values that disrupt reading order.
 *   **Guideline 1.4 Distinguishable:**
     *   🔲 **Contrast Minimum (1.4.3):** `ContrastMinimumRule` defined but stubbed — pending pixel-level analysis library.
-    *   ~~**Focus Appearance (1.4.11):**~~ `FocusAppearanceRule` — detects `outline: none` without fallback focus styles.
+    *   ~~**Focus Appearance (1.4.11):**~~ `FocusAppearanceRule` — compares focused vs. resting computed styles (outline, box-shadow, background, border) to detect missing focus indicators.
 
 ## Phase 3: Operable - Level A & AA Coverage 🟡 (Partially Complete)
 
