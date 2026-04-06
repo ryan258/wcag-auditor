@@ -3,9 +3,10 @@ import pytest
 from unittest.mock import Mock, patch
 from wcag_auditor.auditor import Auditor
 from wcag_auditor.rules.core_rules import (
-    MissingAltTextRule, MissingLabelsRule, MissingLangRule,
+    MissingLabelsRule, MissingLangRule,
     EmptyLinksRule, EmptyButtonsRule, MissingTitleRule, AutofocusInputsRule
 )
+from wcag_auditor.rules.perceivable_rules import ComplexAltTextRule
 
 # Rule Evaluation Tests
 
@@ -21,11 +22,11 @@ def test_check_missing_alt_text(page):
     </html>
     """
     page.set_content(html)
-    rule = MissingAltTextRule()
+    rule = ComplexAltTextRule()
     violations = rule.evaluate(page)
     
     assert len(violations) == 1
-    assert "Image missing alt attribute" in violations[0]["message"]
+    assert "missing text alternatives" in violations[0]["message"]
 
 def test_alt_empty_string_is_valid(page):
     """alt="" is the WCAG-correct pattern for decorative images."""
@@ -37,7 +38,7 @@ def test_alt_empty_string_is_valid(page):
     </html>
     """
     page.set_content(html)
-    rule = MissingAltTextRule()
+    rule = ComplexAltTextRule()
     violations = rule.evaluate(page)
     assert len(violations) == 0
 

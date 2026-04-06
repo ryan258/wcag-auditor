@@ -1,34 +1,27 @@
 from typing import List, Dict, Any
 from playwright.sync_api import Page
 from . import AbstractRule, RuleMetadata
-
-class MissingAltTextRule(AbstractRule):
-    @property
-    def metadata(self) -> RuleMetadata:
-        return RuleMetadata(
-            id="missing-alt-text",
-            description="Images must have alternate text",
-            wcag_criterion="1.1.1",
-            level="A",
-            impact="critical",
-            applicability="image"
-        )
-    
-    def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        violations = []
-        locators = page.locator("img").all()
-        for loc in locators:
-            has_alt = loc.evaluate("el => el.hasAttribute('alt')")
-            role = loc.get_attribute("role")
-            
-            if not has_alt and role != "presentation":
-                html_snippet = loc.evaluate("el => el.outerHTML")
-                violations.append({
-                    "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
-                    "message": "Image missing alt attribute",
-                    "suggestion": 'Add descriptive alt text or role="presentation" for decorative images'
-                })
-        return violations
+from .perceivable_rules import (
+    ComplexAltTextRule,
+    TimeBasedMediaRule,
+    AdaptableLandmarksRule,
+    AdaptableReadingSeqRule,
+    ContrastMinimumRule,
+    FocusAppearanceRule
+)
+from .operable_rules import (
+    KeyboardAccessibilityRule,
+    NavigableRule,
+    TargetSizeRule
+)
+from .understandable_rules import (
+    InputAssistanceRule,
+    IdentifyInputPurposeRule
+)
+from .robust_rules import (
+    ARIAValidationRule,
+    StatusMessagesRule
+)
 
 class MissingLabelsRule(AbstractRule):
     @property
@@ -211,13 +204,44 @@ class AutofocusInputsRule(AbstractRule):
             })
         return violations
 
+class MissingAltTextRule(AbstractRule):
+    """DEPRECATED: Use ComplexAltTextRule from perceivable_rules instead.
+    Maintained for backward compatibility for external consumers."""
+    @property
+    def metadata(self) -> RuleMetadata:
+        return RuleMetadata(
+            id="missing-alt",
+            description="Images must have alternate text",
+            wcag_criterion="1.1.1",
+            level="A",
+            impact="critical",
+            applicability="image"
+        )
+    
+    def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        # Proxy to the new rule
+        from .perceivable_rules import ComplexAltTextRule
+        return ComplexAltTextRule().evaluate(page)
+
 def get_core_rules() -> List[AbstractRule]:
     return [
-        MissingAltTextRule(),
         MissingLabelsRule(),
         MissingLangRule(),
         EmptyLinksRule(),
         EmptyButtonsRule(),
         MissingTitleRule(),
-        AutofocusInputsRule()
+        AutofocusInputsRule(),
+        ComplexAltTextRule(),
+        TimeBasedMediaRule(),
+        AdaptableLandmarksRule(),
+        AdaptableReadingSeqRule(),
+        # ContrastMinimumRule(), # TODO: Stubbed out pending proper contrast calculation library
+        FocusAppearanceRule(),
+        KeyboardAccessibilityRule(),
+        NavigableRule(),
+        TargetSizeRule(),
+        InputAssistanceRule(),
+        IdentifyInputPurposeRule(),
+        ARIAValidationRule(),
+        StatusMessagesRule()
     ]

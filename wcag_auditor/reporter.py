@@ -24,6 +24,8 @@ class Reporter:
             return self._generate_html()
         elif format == "markdown":
             return self._generate_markdown()
+        elif format == "vpat":
+            return self._generate_vpat()
         else:  # text
             return self._generate_text()
     
@@ -243,3 +245,55 @@ WCAG: {passed_item.get('wcag', 'Unknown')} (Level {passed_item.get('level', 'Unk
 """
         
         return text
+
+    def _generate_vpat(self) -> str:
+        """Generate VPAT 2.5 (Accessibility Conformance Report) Markdown report."""
+        violations = self.results.get("violations", [])
+        
+        # Group violations by WCAG criterion
+        criterions = {}
+        for v in violations:
+            wcag = v.get("wcag", "Unknown")
+            if wcag not in criterions:
+                criterions[wcag] = []
+            criterions[wcag].append(v)
+            
+        md = f"""# Accessibility Conformance Report (VPAT® Version 2.5)
+
+* **Name of Product/Version:** Automated WCAG Scan
+* **Report Date:** {datetime.now().strftime('%Y-%m-%d')}
+* **Target:** {self.results.get('base_url', 'Unknown')}
+* **Evaluation Methods Used:** Playwright Automated Testing (`wcag-auditor` version {__version__})
+
+## Applicable Standards/Guidelines
+
+This report covers the degree of conformance for the following accessibility standard/guidelines:
+- Web Content Accessibility Guidelines 2.2 Level A and AA
+
+## Terminology
+
+* **Supports:** The functionality of the product has at least one method that meets the criterion without known defects, or meets with equivalent facilitation.
+* **Partially Supports:** Some functionality of the product does not meet the criterion.
+* **Does Not Support:** The majority of product functionality does not meet the criterion.
+* **Not Applicable:** The criterion is not relevant to the product.
+
+## Table 1: Success Criteria, Level A & AA
+
+| Criteria | Conformance Level | Remarks and Explanations |
+| --- | --- | --- |
+"""
+        
+        # We'll just generate the table rows for criteria that had violations
+        for wcag, rules in sorted(criterions.items()):
+            # Use semi-colon delimited list without raw HTML, with properly escaped text
+            rule_messages = [_esc(rule.get('message', '')) for rule in rules]
+            # Deduplicate messages and join
+            unique_messages = list(dict.fromkeys(rule_messages))
+            remarks = "; ".join(unique_messages)
+            
+            md += f"| {wcag} | Partially Supports | Issues found: {remarks} |\n"
+            
+        if not criterions:
+            md += "| Overall | Supports | No violations detected in automated scans |\n"
+            
+        return md
