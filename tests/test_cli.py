@@ -71,6 +71,53 @@ class TestCLI:
 
         assert result.exit_code == 0
         assert "Accessibility Conformance Report" in result.output
+
+    @patch('wcag_auditor.cli.UserPassRunner')
+    @patch('wcag_auditor.cli.load_user_pass_config')
+    @patch('wcag_auditor.cli.Auditor')
+    def test_audit_command_runs_user_pass_when_enabled(self, mock_auditor_class, mock_load_config, mock_runner_class):
+        mock_auditor = MagicMock()
+        mock_auditor.audit.return_value = {
+            "base_url": "https://example.com",
+            "pages_audited": 1,
+            "total_violations": 0,
+            "total_manual_reviews": 0,
+            "total_warnings": 0,
+            "total_passed": 5,
+            "violation_types": {},
+            "manual_review_types": {},
+            "violations": [],
+            "manual_reviews": [],
+            "warnings": [],
+            "passed": [],
+            "pages": [],
+            "sampling": {},
+            "wcag_em": {},
+            "page_artifacts": [],
+        }
+        mock_auditor_class.return_value = mock_auditor
+        mock_load_config.return_value = object()
+
+        mock_runner = MagicMock()
+        mock_runner.run.return_value = {
+            "status": "completed",
+            "provider": "openrouter",
+            "pages_reviewed": 1,
+            "agents": [],
+            "findings": [],
+            "themes": [],
+            "rewrite_suggestions": [],
+            "errors": [],
+            "limitations": [],
+        }
+        mock_runner_class.return_value = mock_runner
+
+        result = self.runner.invoke(cli, ['audit', 'https://example.com', '--user-pass'])
+
+        assert result.exit_code == 0
+        mock_load_config.assert_called_once_with('.env')
+        mock_runner.run.assert_called_once()
+        assert "SYNTHETIC USER PASS" in result.output
     
     @patch('wcag_auditor.cli.Auditor')
     def test_check_command(self, mock_auditor_class):

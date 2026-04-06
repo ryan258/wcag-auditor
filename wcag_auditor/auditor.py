@@ -159,9 +159,18 @@ class Auditor:
         """Capture per-page metadata needed for site-level findings and WCAG-EM reporting."""
         insights = page.evaluate(
             """() => {
+                const normalizeText = value => (value || '').replace(/\\s+/g, ' ').trim();
+                const byIdText = id => {
+                    if (!id) {
+                        return '';
+                    }
+                    const target = document.getElementById(id);
+                    return target ? normalizeText(target.textContent || target.innerText || '') : '';
+                };
+
                 const navLinks = Array.from(document.querySelectorAll('nav a[href]'))
                     .map(link => ({
-                        text: (link.textContent || link.getAttribute('aria-label') || '').trim().replace(/\\s+/g, ' '),
+                        text: normalizeText(link.textContent || link.getAttribute('aria-label') || ''),
                         href: link.getAttribute('href') || ''
                     }))
                     .filter(link => link.text.length > 0)
@@ -178,16 +187,91 @@ class Auditor:
                     .filter(Boolean)
                     .slice(0, 20);
 
+                const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+                    .map(el => ({
+                        level: el.tagName.toLowerCase(),
+                        text: normalizeText(el.textContent || el.innerText || '')
+                    }))
+                    .filter(item => item.text.length > 0)
+                    .slice(0, 20);
+
+                const landmarks = Array.from(document.querySelectorAll('header, nav, main, footer, aside, form, [role]'))
+                    .map(el => normalizeText(el.getAttribute('role') || el.tagName.toLowerCase()))
+                    .filter(Boolean)
+                    .filter((value, index, values) => values.indexOf(value) === index)
+                    .slice(0, 20);
+
+                const link_labels = Array.from(document.querySelectorAll('a[href]'))
+                    .map(link => normalizeText(
+                        link.textContent ||
+                        link.getAttribute('aria-label') ||
+                        link.getAttribute('title') ||
+                        ''
+                    ))
+                    .filter(Boolean)
+                    .slice(0, 20);
+
+                const button_labels = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], input[type="reset"]'))
+                    .map(button => normalizeText(
+                        button.textContent ||
+                        button.getAttribute('value') ||
+                        button.getAttribute('aria-label') ||
+                        button.getAttribute('title') ||
+                        ''
+                    ))
+                    .filter(Boolean)
+                    .slice(0, 20);
+
+                const form_fields = Array.from(document.querySelectorAll('input, select, textarea'))
+                    .map(field => {
+                        const id = field.getAttribute('id') || '';
+                        const describedby = (field.getAttribute('aria-describedby') || '')
+                            .split(/\\s+/)
+                            .map(token => byIdText(token))
+                            .filter(Boolean)
+                            .join(' ');
+                        const explicitLabel = id
+                            ? Array.from(document.querySelectorAll(`label[for="${id.replace(/"/g, '\\"')}"]`))
+                                .map(label => normalizeText(label.textContent || label.innerText || ''))
+                                .filter(Boolean)
+                                .join(' ')
+                            : '';
+                        const implicitLabel = field.closest('label')
+                            ? normalizeText(field.closest('label').textContent || field.closest('label').innerText || '')
+                            : '';
+
+                        return {
+                            type: (field.getAttribute('type') || field.tagName.toLowerCase()).toLowerCase(),
+                            label: explicitLabel || implicitLabel || normalizeText(field.getAttribute('aria-label') || ''),
+                            name: field.getAttribute('name') || '',
+                            required: field.hasAttribute('required') || field.getAttribute('aria-required') === 'true',
+                            placeholder: normalizeText(field.getAttribute('placeholder') || ''),
+                            hint: normalizeText(describedby)
+                        };
+                    })
+                    .slice(0, 20);
+
+                const mainNode = document.querySelector('main') || document.body;
+                const content_excerpt = normalizeText(mainNode ? (mainNode.innerText || mainNode.textContent || '') : '').slice(0, 1600);
+                const metaDescription = document.querySelector('meta[name="description"]');
+
                 return {
                     nav_labels: navLinks.map(link => link.text),
                     nav_links: navLinks,
                     route_candidates: routeCandidates,
                     form_count: document.querySelectorAll('form').length,
                     video_count: document.querySelectorAll('video').length,
+                    headings: headings,
+                    landmarks: landmarks,
+                    link_labels: link_labels,
+                    button_labels: button_labels,
+                    form_fields: form_fields,
+                    content_excerpt: content_excerpt,
                     has_auth_form: !!document.querySelector(
                         'input[type="password"], input[autocomplete="current-password"], input[autocomplete="one-time-code"]'
                     ),
-                    title: document.title || ''
+                    title: document.title || '',
+                    meta_description: metaDescription ? normalizeText(metaDescription.getAttribute('content') || '') : ''
                 };
             }"""
         )
@@ -479,6 +563,7 @@ class Auditor:
             "warnings": all_warnings,
             "passed": all_passed,
             "pages": pages,
+            "page_artifacts": page_insights,
             "sampling": sampling,
             "wcag_em": wcag_em,
         }

@@ -120,6 +120,229 @@ class Reporter:
             lines.append("")
         return "\n".join(lines)
 
+    def _render_markdown_user_pass(self) -> str:
+        user_pass = self.results.get("user_pass")
+        if not user_pass:
+            return ""
+
+        lines = [
+            "## Synthetic User Pass",
+            "",
+            "- **Status:** {0}".format(user_pass.get("status", "unknown")),
+            "- **Provider:** {0}".format(user_pass.get("provider", "unknown")),
+            "- **Pages reviewed:** {0}".format(user_pass.get("pages_reviewed", 0)),
+        ]
+
+        agents = user_pass.get("agents", [])
+        if agents:
+            lines.append("- **Models:** {0}".format(", ".join(
+                "{0}={1}".format(agent.get("agent_id", "unknown"), agent.get("model", "unknown"))
+                for agent in agents
+            )))
+
+        limitations = user_pass.get("limitations", [])
+        if limitations:
+            lines.extend(["", "### Limits", ""])
+            for limitation in limitations:
+                lines.append("- {0}".format(limitation))
+
+        errors = user_pass.get("errors", [])
+        if errors:
+            lines.extend(["", "### Errors", ""])
+            for error in errors:
+                lines.append("- **{0}:** {1}".format(error.get("stage", "stage"), error.get("message", "Unknown error")))
+
+        themes = user_pass.get("themes", [])
+        lines.extend(["", "### Themes ({0})".format(len(themes)), ""])
+        if themes:
+            for theme in themes:
+                lines.append("#### {0} on {1}".format(
+                    theme.get("category", "general"),
+                    theme.get("page_title") or theme.get("page_url", "Unknown page"),
+                ))
+                lines.append("- **Target:** {0}".format(theme.get("target_text", "General page flow")))
+                lines.append("- **Issue:** {0}".format(theme.get("issue", "No issue provided")))
+                lines.append("- **Suggested change:** {0}".format(theme.get("suggested_change", "No suggestion provided")))
+                lines.append("- **Agents:** {0}".format(", ".join(theme.get("agent_ids", [])) or "None"))
+                lines.append("")
+        else:
+            lines.append("None.")
+
+        rewrites = user_pass.get("rewrite_suggestions", [])
+        lines.extend(["", "### Rewrite Suggestions ({0})".format(len(rewrites)), ""])
+        if rewrites:
+            for rewrite in rewrites:
+                lines.append("- **Page:** {0}".format(rewrite.get("page_url", "Unknown")))
+                lines.append("  **Location:** {0}".format(rewrite.get("location", "General copy")))
+                lines.append("  **Current:** `{0}`".format(rewrite.get("current_text", "")))
+                lines.append("  **Proposed:** `{0}`".format(rewrite.get("proposed_text", "")))
+                lines.append("  **Why:** {0}".format(rewrite.get("rationale", "No rationale provided")))
+        else:
+            lines.append("None.")
+
+        lines.append("")
+        return "\n".join(lines)
+
+    def _render_text_user_pass(self) -> str:
+        user_pass = self.results.get("user_pass")
+        if not user_pass:
+            return ""
+
+        lines = [
+            "SYNTHETIC USER PASS",
+            "-------------------",
+            "",
+            "Status: {0}".format(user_pass.get("status", "unknown")),
+            "Provider: {0}".format(user_pass.get("provider", "unknown")),
+            "Pages reviewed: {0}".format(user_pass.get("pages_reviewed", 0)),
+            "",
+        ]
+
+        agents = user_pass.get("agents", [])
+        if agents:
+            lines.append("Models: {0}".format(", ".join(
+                "{0}={1}".format(agent.get("agent_id", "unknown"), agent.get("model", "unknown"))
+                for agent in agents
+            )))
+            lines.append("")
+
+        for limitation in user_pass.get("limitations", []):
+            lines.append("Limit: {0}".format(limitation))
+        if user_pass.get("limitations"):
+            lines.append("")
+
+        for error in user_pass.get("errors", []):
+            lines.append("Error ({0}): {1}".format(error.get("stage", "stage"), error.get("message", "Unknown error")))
+        if user_pass.get("errors"):
+            lines.append("")
+
+        themes_header = "Themes ({0})".format(len(user_pass.get("themes", [])))
+        lines.append(themes_header)
+        lines.append("-" * len(themes_header))
+        lines.append("")
+        for theme in user_pass.get("themes", []):
+            lines.append("Category: {0}".format(theme.get("category", "general")))
+            lines.append("Page: {0}".format(theme.get("page_title") or theme.get("page_url", "Unknown page")))
+            lines.append("Target: {0}".format(theme.get("target_text", "General page flow")))
+            lines.append("Issue: {0}".format(theme.get("issue", "No issue provided")))
+            lines.append("Suggested change: {0}".format(theme.get("suggested_change", "No suggestion provided")))
+            lines.append("Agents: {0}".format(", ".join(theme.get("agent_ids", [])) or "None"))
+            lines.append("")
+        if not user_pass.get("themes"):
+            lines.append("None.")
+            lines.append("")
+
+        rewrites_header = "Rewrite Suggestions ({0})".format(len(user_pass.get("rewrite_suggestions", [])))
+        lines.append(rewrites_header)
+        lines.append("-" * len(rewrites_header))
+        lines.append("")
+        for rewrite in user_pass.get("rewrite_suggestions", []):
+            lines.append("Page: {0}".format(rewrite.get("page_url", "Unknown")))
+            lines.append("Location: {0}".format(rewrite.get("location", "General copy")))
+            lines.append("Current: {0}".format(rewrite.get("current_text", "")))
+            lines.append("Proposed: {0}".format(rewrite.get("proposed_text", "")))
+            lines.append("Why: {0}".format(rewrite.get("rationale", "No rationale provided")))
+            lines.append("")
+        if not user_pass.get("rewrite_suggestions"):
+            lines.append("None.")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _render_html_user_pass(self) -> str:
+        user_pass = self.results.get("user_pass")
+        if not user_pass:
+            return ""
+
+        html_output = """
+    <div class="user-pass">
+        <h2>Synthetic User Pass</h2>
+        <p><strong>Status:</strong> {status}</p>
+        <p><strong>Provider:</strong> {provider}</p>
+        <p><strong>Pages reviewed:</strong> {pages_reviewed}</p>
+""".format(
+            status=_esc(user_pass.get("status", "unknown")),
+            provider=_esc(user_pass.get("provider", "unknown")),
+            pages_reviewed=_esc(user_pass.get("pages_reviewed", 0)),
+        )
+
+        agents = user_pass.get("agents", [])
+        if agents:
+            html_output += """
+        <p><strong>Models:</strong> {models}</p>
+""".format(
+                models=_esc(", ".join(
+                    "{0}={1}".format(agent.get("agent_id", "unknown"), agent.get("model", "unknown"))
+                    for agent in agents
+                ))
+            )
+
+        if user_pass.get("limitations"):
+            html_output += "        <h3>Limits</h3>\n        <ul>\n"
+            for limitation in user_pass.get("limitations", []):
+                html_output += "            <li>{0}</li>\n".format(_esc(limitation))
+            html_output += "        </ul>\n"
+
+        if user_pass.get("errors"):
+            html_output += "        <h3>Errors</h3>\n"
+            for error in user_pass.get("errors", []):
+                html_output += """
+        <div class="warning">
+            <div class="rule">{stage}</div>
+            <p>{message}</p>
+        </div>
+""".format(
+                    stage=_esc(error.get("stage", "stage")),
+                    message=_esc(error.get("message", "Unknown error")),
+                )
+
+        html_output += "        <h3>Themes ({0})</h3>\n".format(len(user_pass.get("themes", [])))
+        if user_pass.get("themes"):
+            for theme in user_pass.get("themes", []):
+                html_output += """
+        <div class="user-pass-theme">
+            <div class="rule">{category}</div>
+            <p><strong>Page:</strong> {page}</p>
+            <p><strong>Target:</strong> {target}</p>
+            <p><strong>Issue:</strong> {issue}</p>
+            <p><strong>Suggested change:</strong> {suggested_change}</p>
+            <p><strong>Agents:</strong> {agents}</p>
+        </div>
+""".format(
+                    category=_esc(theme.get("category", "general")),
+                    page=_esc(theme.get("page_title") or theme.get("page_url", "Unknown page")),
+                    target=_esc(theme.get("target_text", "General page flow")),
+                    issue=_esc(theme.get("issue", "No issue provided")),
+                    suggested_change=_esc(theme.get("suggested_change", "No suggestion provided")),
+                    agents=_esc(", ".join(theme.get("agent_ids", [])) or "None"),
+                )
+        else:
+            html_output += "        <p>None.</p>\n"
+
+        html_output += "        <h3>Rewrite Suggestions ({0})</h3>\n".format(len(user_pass.get("rewrite_suggestions", [])))
+        if user_pass.get("rewrite_suggestions"):
+            for rewrite in user_pass.get("rewrite_suggestions", []):
+                html_output += """
+        <div class="user-pass-rewrite">
+            <p><strong>Page:</strong> {page}</p>
+            <p><strong>Location:</strong> {location}</p>
+            <p><strong>Current:</strong> <code>{current_text}</code></p>
+            <p><strong>Proposed:</strong> <code>{proposed_text}</code></p>
+            <p><strong>Why:</strong> {rationale}</p>
+        </div>
+""".format(
+                    page=_esc(rewrite.get("page_url", "Unknown")),
+                    location=_esc(rewrite.get("location", "General copy")),
+                    current_text=_esc(rewrite.get("current_text", "")),
+                    proposed_text=_esc(rewrite.get("proposed_text", "")),
+                    rationale=_esc(rewrite.get("rationale", "No rationale provided")),
+                )
+        else:
+            html_output += "        <p>None.</p>\n"
+
+        html_output += "    </div>\n"
+        return html_output
+
     def _generate_json(self) -> str:
         report_data = {
             "metadata": {
@@ -135,8 +358,10 @@ class Reporter:
             "warnings": self.results.get("warnings", []),
             "passed": self.results.get("passed", []),
             "pages": self.results.get("pages", []),
+            "page_artifacts": self.results.get("page_artifacts", []),
             "sampling": self.results.get("sampling", {}),
             "wcag_em": self.results.get("wcag_em", {}),
+            "user_pass": self.results.get("user_pass", {}),
         }
         return json.dumps(report_data, indent=2)
 
@@ -163,6 +388,8 @@ class Reporter:
         .manual-review {{ border-left: 4px solid #6a1b9a; padding: 10px; margin: 10px 0; background: #f3e5f5; }}
         .warning {{ border-left: 4px solid #ff9800; padding: 10px; margin: 10px 0; background: #fff3e0; }}
         .passed {{ border-left: 4px solid #4caf50; padding: 10px; margin: 10px 0; background: #e8f5e8; }}
+        .user-pass {{ background: #eef4ff; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+        .user-pass-theme, .user-pass-rewrite {{ border-left: 4px solid #1d4ed8; padding: 10px; margin: 10px 0; background: #f8fbff; }}
         .rule {{ font-weight: bold; }}
         .impact {{ display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 0.8em; }}
         .impact-critical {{ background: #d32f2f; color: white; }}
@@ -236,6 +463,8 @@ class Reporter:
     </div>
 """
 
+        html_output += self._render_html_user_pass()
+
         html_output += f"""
     <h2>Passed Checks ({len(passed)})</h2>
 """
@@ -292,6 +521,8 @@ class Reporter:
         else:
             report += "None.\n"
 
+        report += "\n"
+        report += self._render_markdown_user_pass()
         report += "\n## Passed Checks ({})\n\n".format(len(self.results.get("passed", [])))
         for passed_item in self.results.get("passed", []):
             report += (
@@ -337,6 +568,8 @@ Methodology: {wcag_em.get('methodology', 'Not provided')}
         report += self._render_text_findings(self.results.get("manual_reviews", []), "Needs Manual Review")
         report += "\n"
         report += self._render_text_messages(self.results.get("warnings", []), "Warnings")
+        report += "\n"
+        report += self._render_text_user_pass()
         report += "\n"
         report += self._render_text_passed_checks(self.results.get("passed", []))
         return report

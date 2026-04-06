@@ -8,6 +8,7 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from wcag_auditor.auditor import Auditor
 from wcag_auditor.reporter import Reporter
+from wcag_auditor.user_pass import UserPassConfigError, UserPassRunner, load_user_pass_config
 from wcag_auditor import DEFAULT_USER_AGENT, __version__
 
 console = Console()
@@ -26,6 +27,8 @@ def cli():
 @click.option("--output", "-o", type=click.Path(), help="Output file path (default: stdout)")
 @click.option("--timeout", "-t", default=30, help="Request timeout in seconds (default: 30)")
 @click.option("--user-agent", "-u", default=DEFAULT_USER_AGENT, help="User agent string for requests")
+@click.option("--user-pass", is_flag=True, help="Run synthetic reviewers and a copywriter using OpenRouter models from env vars or .env")
+@click.option("--env-file", default=".env", show_default=True, help="Environment file used to resolve optional OpenRouter user-pass settings")
 @click.option(
     "--sample-strategy",
     type=click.Choice(["representative", "sequential"]),
@@ -40,6 +43,8 @@ def audit(
     output: Optional[str],
     timeout: int,
     user_agent: str,
+    user_pass: bool,
+    env_file: str,
     sample_strategy: str,
 ):
     """Audit a website for WCAG 2.2 compliance."""
@@ -61,9 +66,32 @@ def audit(
             )
             
             results = auditor.audit()
+            report_input = dict(results)
+
+            if user_pass:
+                progress.update(task, description="Running synthetic user pass...")
+                try:
+                    config = load_user_pass_config(env_file)
+                    report_input["user_pass"] = UserPassRunner(config).run(results)
+                except UserPassConfigError as exc:
+                    report_input["user_pass"] = {
+                        "status": "error",
+                        "provider": "openrouter",
+                        "pages_reviewed": 0,
+                        "agents": [],
+                        "findings": [],
+                        "themes": [],
+                        "rewrite_suggestions": [],
+                        "errors": [{"stage": "config", "message": str(exc)}],
+                        "limitations": [
+                            "Synthetic reviewers are optional and require explicit OpenRouter configuration.",
+                            "Synthetic user-pass output does not replace disabled human participants.",
+                        ],
+                    }
+
             progress.update(task, description="Generating report...")
             
-            reporter = Reporter(results)
+            reporter = Reporter(report_input)
             report = reporter.generate(output_format)
             
             if output:

@@ -215,3 +215,58 @@ class TestReporter:
         report = Reporter(remediation_results).generate("markdown")
         assert "```html" in report
         assert "Meaningful description" in report
+
+    def test_generate_json_includes_user_pass_payload(self):
+        user_pass_results = dict(self.sample_results)
+        user_pass_results["user_pass"] = {
+            "status": "completed",
+            "provider": "openrouter",
+            "pages_reviewed": 1,
+            "agents": [{"agent_id": "screen_reader", "model": "openrouter/test"}],
+            "findings": [],
+            "themes": [],
+            "rewrite_suggestions": [],
+            "errors": [],
+            "limitations": [],
+        }
+
+        data = json.loads(Reporter(user_pass_results).generate("json"))
+        assert data["user_pass"]["status"] == "completed"
+        assert data["user_pass"]["provider"] == "openrouter"
+
+    def test_generate_text_includes_synthetic_user_pass_section(self):
+        user_pass_results = dict(self.sample_results)
+        user_pass_results["user_pass"] = {
+            "status": "completed",
+            "provider": "openrouter",
+            "pages_reviewed": 1,
+            "agents": [{"agent_id": "screen_reader", "model": "openrouter/test"}],
+            "findings": [],
+            "themes": [
+                {
+                    "page_url": "https://example.com",
+                    "page_title": "Home",
+                    "category": "semantics",
+                    "target_text": "Start now",
+                    "issue": "CTA lacks context",
+                    "suggested_change": "Name the audit explicitly",
+                    "agent_ids": ["screen_reader"],
+                    "confidence": 0.8,
+                }
+            ],
+            "rewrite_suggestions": [
+                {
+                    "page_url": "https://example.com",
+                    "location": "Primary CTA",
+                    "current_text": "Start now",
+                    "proposed_text": "Start your accessibility audit",
+                    "rationale": "More specific wording.",
+                }
+            ],
+            "errors": [],
+            "limitations": ["Synthetic reviewers are not a substitute for human participants."],
+        }
+
+        report = Reporter(user_pass_results).generate("text")
+        assert "SYNTHETIC USER PASS" in report
+        assert "Start your accessibility audit" in report

@@ -1,19 +1,22 @@
 # Boundaries
 
 - UI boundary: `wcag_auditor/cli.py` owns `click`, `rich`, `Console`, `Table`, `Progress`, `sys.exit`, and output file writes.
-- Business boundary: `wcag_auditor/auditor.py` owns crawling, HTML parsing, WCAG rule execution, URL normalization, and aggregate result assembly.
-- Presentation boundary: `wcag_auditor/reporter.py` owns format conversion only; it must not fetch pages, mutate crawl state, or print.
-- Contract: CLI passes only primitives into `Auditor(base_url, max_depth, max_pages, timeout, user_agent)`.
-- Contract: `Auditor.audit()` returns one serializable result dict with keys `base_url`, `pages_audited`, `total_violations`, `total_warnings`, `total_passed`, `violation_types`, `violations`, `warnings`, `passed`, `pages`.
+- Business boundary: `wcag_auditor/auditor.py` owns Playwright crawling, WCAG rule execution, URL normalization, page artifact collection, and aggregate result assembly.
+- Synthetic review boundary: `wcag_auditor/user_pass/` owns optional OpenRouter-backed reviewer orchestration, env loading for that feature, and synthetic rewrite suggestions.
+- Presentation boundary: `wcag_auditor/reporter.py` owns format conversion only; it must not fetch pages, mutate crawl state, call OpenRouter, or print.
+- Contract: CLI passes only primitives into `Auditor(base_url, max_depth, max_pages, timeout, user_agent, sample_strategy)`.
+- Contract: `Auditor.audit()` returns one serializable result dict with keys `base_url`, `pages_audited`, `total_violations`, `total_manual_reviews`, `total_warnings`, `total_passed`, `violation_types`, `manual_review_types`, `violations`, `manual_reviews`, `warnings`, `passed`, `pages`, `page_artifacts`, `sampling`, `wcag_em`.
 - Contract: `Reporter(results).generate(format)` accepts that aggregate dict and returns a string; no side effects are allowed inside `Reporter`.
-- Contract: `AuditResult` is the internal per-page shape with `url`, `violations`, `warnings`, `passed`, `page_title`, `timestamp`.
-- Internal-only seam: `_check_page(url)` returns `(AuditResult, BeautifulSoup|None)` for reuse inside `Auditor`; do not expose `BeautifulSoup` outside the audit layer.
-- Host API seam: `_get_page(url)` is the only place that talks to `requests`; keep raw HTTP response objects contained there.
-- Host API seam: `_extract_links(soup, current_url)` is the only place that normalizes/discovers crawl targets; keep crawl policy there.
+- Contract: `AuditResult` is the internal per-page shape with `url`, `violations`, `warnings`, `passed`, `manual_reviews`, `page_title`, `timestamp`, `page_insights`.
+- Internal-only seam: `_check_page(page, url)` evaluates rules and returns `AuditResult`; only serializable page insight data crosses out of the method.
+- Host API seam: `sync_playwright()` and `page.goto(...)` are confined to `Auditor.audit()`.
+- Host API seam: `user_pass.client.OpenRouterClient` is the only place that talks to OpenRouter; keep raw HTTP responses contained there.
+- Host API seam: `_extract_links(page, current_url)` is the only place that normalizes/discovers crawl targets; keep crawl policy there.
 - Output seam: HTML escaping belongs in `reporter._esc`; page-derived HTML must never bypass it.
 - Exit seam: only CLI commands may convert failures into terminal output and process exit codes.
 - Rule seam: each WCAG rule entry must define `description`, `wcag`, `level`, `impact`, and `check`; keep rule metadata adjacent to the callable.
-- Data seam: result payloads must stay plain Python data; do not leak console objects, parser objects, response objects, or exceptions into them.
-- Test seam: tests patch `wcag_auditor.cli.Auditor` and `wcag_auditor.auditor.requests.get`; preserve those import seams unless tests are updated with the refactor.
+- Data seam: result payloads must stay plain Python data; do not leak console objects, Playwright objects, HTTP response objects, or exceptions into them.
+- Test seam: tests patch `wcag_auditor.cli.Auditor`, `wcag_auditor.cli.UserPassRunner`, and `wcag_auditor.auditor.sync_playwright`; preserve those import seams unless tests are updated with the refactor.
 - UI stop line: CLI may choose command defaults and rendering widgets, but it must not inspect HTML or infer WCAG logic.
-- Domain stop line: `Auditor` may compute violations and warnings, but it must not print, exit, or know about terminal formatting.
+- Domain stop line: `Auditor` may compute violations and serializable page artifacts, but it must not print, exit, or know about terminal formatting.
+- Synthetic stop line: `UserPassRunner` may analyze serialized audit output, but it must not crawl pages, write files, or relabel synthetic findings as WCAG violations.

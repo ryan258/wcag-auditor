@@ -230,6 +230,7 @@ def test_auditor_init_and_audit(mock_pw):
     assert results["pages_audited"] > 0
     assert "pages" in results
     assert "manual_reviews" in results
+    assert "page_artifacts" in results
     assert "sampling" in results
     assert "wcag_em" in results
 
