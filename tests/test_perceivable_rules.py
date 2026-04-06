@@ -1,7 +1,8 @@
 import pytest
 from wcag_auditor.rules.perceivable_rules import (
     ComplexAltTextRule, TimeBasedMediaRule, AdaptableLandmarksRule,
-    AdaptableReadingSeqRule, FocusAppearanceRule
+    AdaptableReadingSeqRule, AudioDescriptionRule, ContrastMinimumRule,
+    FocusAppearanceRule, InlineLanguageChangeRule
 )
 
 def test_complex_alt_text_rule_svg(page):
@@ -35,7 +36,7 @@ def test_time_based_media_rule(page):
     violations = rule.evaluate(page)
     
     assert len(violations) == 1
-    assert "missing a captions track" in violations[0]["message"]
+    assert "captions or subtitles track" in violations[0]["message"]
 
 def test_time_based_media_rule_ignores_audio_only(page):
     html = """
@@ -50,6 +51,41 @@ def test_time_based_media_rule_ignores_audio_only(page):
     violations = rule.evaluate(page)
 
     assert violations == []
+
+def test_time_based_media_rule_flags_invalid_caption_track(page):
+    html = """
+    <html>
+        <body>
+            <video>
+                <track kind="captions" src="">
+            </video>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = TimeBasedMediaRule()
+    findings = rule.evaluate(page)
+
+    assert len(findings) == 1
+    assert "Caption track source is empty" in findings[0]["message"]
+
+def test_audio_description_rule_marks_missing_track_for_review(page):
+    html = """
+    <html>
+        <body>
+            <video>
+                <track kind="captions" src="captions.vtt">
+            </video>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = AudioDescriptionRule()
+    findings = rule.evaluate(page)
+
+    assert len(findings) == 1
+    assert findings[0]["finding_type"] == "needs_review"
+    assert "audio description track" in findings[0]["message"]
 
 def test_adaptable_landmarks_rule(page):
     html = """
@@ -127,6 +163,63 @@ def test_focus_appearance_rule_accepts_focus_visible_styles(page):
 
     assert violations == []
 
+def test_contrast_minimum_rule(page):
+    html = """
+    <html>
+        <head>
+            <style>
+                .bad { color: rgb(120, 120, 120); background: rgb(150, 150, 150); }
+                .good { color: rgb(0, 0, 0); background: rgb(255, 255, 255); }
+            </style>
+        </head>
+        <body>
+            <p class="bad">Low contrast text</p>
+            <p class="good">Readable text</p>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = ContrastMinimumRule()
+    violations = rule.evaluate(page)
+
+    assert len(violations) == 1
+    assert "contrast ratio" in violations[0]["message"]
+
+def test_contrast_minimum_rule_happy_path(page):
+    html = """
+    <html>
+        <head>
+            <style>
+                .good { color: rgb(0, 0, 0); background: rgb(255, 255, 255); }
+            </style>
+        </head>
+        <body>
+            <p class="good">Readable text</p>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = ContrastMinimumRule()
+
+    assert rule.evaluate(page) == []
+
+def test_inline_language_change_rule(page):
+    html = """
+    <html lang="en">
+        <body>
+            <p>Hello <span>Señor</span></p>
+            <p><span lang="fr">Bonjour</span></p>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = InlineLanguageChangeRule()
+    findings = rule.evaluate(page)
+
+    assert len(findings) == 1
+    assert findings[0]["finding_type"] == "needs_review"
+    assert "switch language" in findings[0]["message"]
+
 def test_perceivable_rules_happy_path(page):
     html = """
     <html>
@@ -138,8 +231,12 @@ def test_perceivable_rules_happy_path(page):
         <body>
             <main id="main">
                 <img src="test.jpg" alt="Valid alt text">
-                <video><track kind="captions" src="test.vtt"></video>
+                <video>
+                    <track kind="captions" src="test.vtt">
+                    <track kind="descriptions" src="desc.vtt">
+                </video>
                 <div tabindex="0">Zero</div>
+                <p><span lang="fr">Bonjour</span></p>
                 <button>Click</button>
             </main>
         </body>
@@ -151,9 +248,11 @@ def test_perceivable_rules_happy_path(page):
     rule3 = AdaptableLandmarksRule()
     rule4 = AdaptableReadingSeqRule()
     rule5 = FocusAppearanceRule()
+    rule6 = AudioDescriptionRule()
     
     assert len(rule1.evaluate(page)) == 0
     assert len(rule2.evaluate(page)) == 0
     assert len(rule3.evaluate(page)) == 0
     assert len(rule4.evaluate(page)) == 0
     assert len(rule5.evaluate(page)) == 0
+    assert len(rule6.evaluate(page)) == 0

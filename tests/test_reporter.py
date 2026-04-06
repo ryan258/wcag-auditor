@@ -13,11 +13,16 @@ class TestReporter:
             "base_url": "https://example.com",
             "pages_audited": 5,
             "total_violations": 3,
+            "total_manual_reviews": 2,
             "total_warnings": 1,
             "total_passed": 10,
             "violation_types": {
                 "missing-alt-text": 2,
                 "empty-links": 1
+            },
+            "manual_review_types": {
+                "audio-description-track": 1,
+                "accessible-authentication": 1
             },
             "violations": [
                 {
@@ -41,6 +46,18 @@ class TestReporter:
                     "suggestion": "Add text content"
                 }
             ],
+            "manual_reviews": [
+                {
+                    "rule": "audio-description-track",
+                    "wcag": "1.2.5",
+                    "level": "AA",
+                    "impact": "serious",
+                    "description": "Video should expose audio descriptions",
+                    "element": "<video></video>",
+                    "message": "Video has no detectable audio description track",
+                    "suggestion": "Review whether the media requires audio description."
+                }
+            ],
             "warnings": [
                 {
                     "rule": "low-contrast",
@@ -59,11 +76,28 @@ class TestReporter:
                 {
                     "url": "https://example.com",
                     "title": "Home",
+                    "template": "/",
+                    "page_type": "home",
                     "violations_count": 2,
+                    "manual_reviews_count": 1,
                     "warnings_count": 1,
                     "passed_count": 5
                 }
-            ]
+            ],
+            "sampling": {
+                "strategy": "representative",
+                "sampled_pages": 5,
+                "unique_templates": 3,
+                "representative_pages": [
+                    {"template": "/", "url": "https://example.com", "page_type": "home", "title": "Home"}
+                ]
+            },
+            "wcag_em": {
+                "methodology": "Representative crawl using Playwright.",
+                "sample": [
+                    {"template": "/", "url": "https://example.com", "page_type": "home"}
+                ]
+            }
         }
     
     def test_generate_json(self):
@@ -74,7 +108,9 @@ class TestReporter:
         data = json.loads(report)
         assert data["summary"]["base_url"] == "https://example.com"
         assert data["summary"]["total_violations"] == 3
+        assert data["summary"]["total_manual_reviews"] == 2
         assert len(data["violations"]) == 2
+        assert len(data["manual_reviews"]) == 1
         assert "metadata" in data
     
     def test_generate_html(self):
@@ -86,6 +122,7 @@ class TestReporter:
         assert "WCAG Audit Report" in report
         assert "https://example.com" in report
         assert "missing-alt-text" in report
+        assert "Needs Manual Review" in report
     
     def test_generate_markdown(self):
         """Test Markdown report generation."""
@@ -95,6 +132,7 @@ class TestReporter:
         assert "# WCAG Audit Report" in report
         assert "**URL:** https://example.com" in report
         assert "missing-alt-text" in report
+        assert "WCAG-EM Evaluation Summary" in report
     
     def test_generate_text(self):
         """Test text report generation."""
@@ -104,6 +142,21 @@ class TestReporter:
         assert "WCAG AUDIT REPORT" in report
         assert "URL: https://example.com" in report
         assert "missing-alt-text" in report
+        assert "Needs Manual Review" in report
+        assert "Impact: Unknown" not in report
+
+    def test_render_text_findings_omits_unknown_metadata_for_partial_items(self):
+        reporter = Reporter(self.sample_results)
+        report = reporter._render_text_findings(
+            [{"rule": "low-contrast", "message": "Contrast check not implemented"}],
+            "Warnings",
+        )
+
+        assert "Rule: low-contrast" in report
+        assert "Message: Contrast check not implemented" in report
+        assert "WCAG: Unknown" not in report
+        assert "Impact: Unknown" not in report
+        assert "Description: No description" not in report
     
     def test_generate_invalid_format(self):
         """Test invalid format falls back to text."""
@@ -142,3 +195,23 @@ class TestReporter:
         assert "<script>" not in report
         assert "&lt;script&gt;" in report
         assert 'onerror="alert(1)"' not in report
+
+    def test_markdown_includes_remediation_code_when_available(self):
+        remediation_results = dict(self.sample_results)
+        remediation_results["violations"] = [
+            {
+                "rule": "missing-alt-text",
+                "wcag": "1.1.1",
+                "level": "A",
+                "impact": "critical",
+                "description": "Images must have alternate text",
+                "element": "<img>",
+                "message": "Missing alt text",
+                "suggestion": "Add alt text",
+                "remediation_code": '<img alt="Meaningful description">'
+            }
+        ]
+
+        report = Reporter(remediation_results).generate("markdown")
+        assert "```html" in report
+        assert "Meaningful description" in report

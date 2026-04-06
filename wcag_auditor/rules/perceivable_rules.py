@@ -1,6 +1,10 @@
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
 from playwright.sync_api import Page
+
 from . import AbstractRule, RuleMetadata
+from .helpers import build_finding, collect_focus_indicator_findings, locator_html
+
 
 class ComplexAltTextRule(AbstractRule):
     @property
@@ -11,45 +15,54 @@ class ComplexAltTextRule(AbstractRule):
             wcag_criterion="1.1.1",
             level="A",
             impact="critical",
-            applicability="image"
+            applicability="image",
         )
-    
+
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
         violations = []
         locators = page.locator("img, svg, [role='img']").all()
         for loc in locators:
             tag_name = loc.evaluate("el => el.tagName.toLowerCase()")
             role = loc.get_attribute("role")
-            
-            if role == "presentation" or role == "none":
+
+            if role in {"presentation", "none"}:
                 continue
 
             has_alt = False
-            # Check img specific alternative text
             if tag_name == "img":
                 has_alt = loc.evaluate("el => el.hasAttribute('alt')")
-            
-            # Global checks (aria-label, aria-labelledby)
+
             if not has_alt:
-                has_alt = loc.evaluate("""el => {
-                    if (el.hasAttribute('aria-label') && el.getAttribute('aria-label').trim().length > 0) return true;
-                    if (el.hasAttribute('aria-labelledby')) return true;
-                    if (el.tagName.toLowerCase() === 'svg') {
-                        const title = el.querySelector('title');
-                        if (title && title.textContent.trim().length > 0) return true;
-                    }
-                    if (el.hasAttribute('title') && el.getAttribute('title').trim().length > 0) return true;
-                    return false;
-                }""")
-            
+                has_alt = loc.evaluate(
+                    """el => {
+                        if (el.hasAttribute('aria-label') && el.getAttribute('aria-label').trim().length > 0) return true;
+                        if (el.hasAttribute('aria-labelledby')) return true;
+                        if (el.tagName.toLowerCase() === 'svg') {
+                            const title = el.querySelector('title');
+                            if (title && title.textContent.trim().length > 0) return true;
+                        }
+                        if (el.hasAttribute('title') && el.getAttribute('title').trim().length > 0) return true;
+                        return false;
+                    }"""
+                )
+
             if not has_alt:
-                html_snippet = loc.evaluate("el => el.outerHTML")
-                violations.append({
-                    "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
-                    "message": "Image/Graphic missing text alternatives",
-                    "suggestion": 'Add alt attribute, <title> (for svg), aria-label, or role="presentation"'
-                })
+                violations.append(
+                    build_finding(
+                        element=locator_html(loc),
+                        message="Image/Graphic missing text alternatives",
+                        suggestion=(
+                            "Add alt text, aria-label, aria-labelledby, or mark purely decorative graphics "
+                            "with role='presentation'."
+                        ),
+                        remediation_code=(
+                            '<img src="example.jpg" alt="Describe the meaningful content">\n'
+                            '<svg role="img" aria-label="Meaningful icon"></svg>'
+                        ),
+                    )
+                )
         return violations
+
 
 class TimeBasedMediaRule(AbstractRule):
     @property
@@ -60,34 +73,102 @@ class TimeBasedMediaRule(AbstractRule):
             wcag_criterion="1.2.2",
             level="A",
             impact="serious",
-            applicability="media"
+            applicability="media",
         )
-    
+
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        violations = []
-        locators = page.locator("video").all()
-        for loc in locators:
-            tag = loc.evaluate("el => el.tagName.toLowerCase()")
-            
-            has_track = loc.evaluate("""el => {
-                const tracks = el.querySelectorAll('track');
-                for (let track of tracks) {
-                    const kind = track.getAttribute('kind');
-                    if (kind === 'captions' || kind === 'subtitles') {
-                        return true;
+        findings: List[Dict[str, Any]] = []
+        for loc in page.locator("video").all():
+            track_state = loc.evaluate(
+                """el => {
+                    const tracks = Array.from(el.querySelectorAll('track'));
+                    const captionTracks = tracks.filter(track =>
+                        ['captions', 'subtitles'].includes((track.getAttribute('kind') || '').toLowerCase())
+                    );
+
+                    const brokenTrack = captionTracks.find(track => {
+                        const src = (track.getAttribute('src') || '').trim();
+                        const readyState = typeof track.readyState === 'number' ? track.readyState : 0;
+                        const cues = track.track && track.track.cues ? track.track.cues.length : null;
+                        return src.length === 0 || readyState === 3 || (readyState === 2 && cues === 0);
+                    });
+
+                    return {
+                        captionTrackCount: captionTracks.length,
+                        brokenTrackHtml: brokenTrack ? trackHtml(brokenTrack) : null
+                    };
+
+                    function trackHtml(track) {
+                        const html = track.outerHTML || '<track>';
+                        return html.length > 140 ? `${html.slice(0, 140)}...` : html;
                     }
-                }
-                return false;
-            }""")
-            
-            if not has_track:
-                html_snippet = loc.evaluate("el => el.outerHTML")
-                violations.append({
-                    "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
-                    "message": f"Media element <{tag}> is missing a captions track",
-                    "suggestion": "Add a <track kind='captions'> or <track kind='subtitles'> to provide synchronized captions"
-                })
-        return violations
+                }"""
+            )
+
+            if track_state["captionTrackCount"] == 0:
+                findings.append(
+                    build_finding(
+                        element=locator_html(loc),
+                        message="Video is missing a captions or subtitles track",
+                        suggestion="Add a populated <track kind='captions'> or <track kind='subtitles'> file.",
+                        remediation_code=(
+                            "<video controls>\n"
+                            "  <source src=\"movie.mp4\" type=\"video/mp4\">\n"
+                            "  <track kind=\"captions\" srclang=\"en\" src=\"captions-en.vtt\" default>\n"
+                            "</video>"
+                        ),
+                    )
+                )
+                continue
+
+            if track_state["brokenTrackHtml"]:
+                findings.append(
+                    build_finding(
+                        element=track_state["brokenTrackHtml"],
+                        message="Caption track source is empty, failed to load, or contains no cues",
+                        suggestion="Point the caption track at a valid VTT file with synchronized cues.",
+                        remediation_code='<track kind="captions" srclang="en" src="captions-en.vtt" default>',
+                    )
+                )
+                continue
+
+        return findings
+
+
+class AudioDescriptionRule(AbstractRule):
+    @property
+    def metadata(self) -> RuleMetadata:
+        return RuleMetadata(
+            id="audio-description-track",
+            description="Prerecorded video should expose audio description or an equivalent alternative",
+            wcag_criterion="1.2.5",
+            level="AA",
+            impact="serious",
+            applicability="media",
+        )
+
+    def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        findings: List[Dict[str, Any]] = []
+        for loc in page.locator("video").all():
+            has_description_track = loc.evaluate(
+                """el => Array.from(el.querySelectorAll('track')).some(track =>
+                    (track.getAttribute('kind') || '').toLowerCase() === 'descriptions'
+                )"""
+            )
+            if not has_description_track:
+                findings.append(
+                    build_finding(
+                        element=locator_html(loc),
+                        message="Video has no detectable audio description track",
+                        suggestion=(
+                            "Provide audio descriptions, an alternate described version, or document that the "
+                            "video has no information conveyed visually alone."
+                        ),
+                        finding_type="needs_review",
+                    )
+                )
+        return findings
+
 
 class AdaptableLandmarksRule(AbstractRule):
     @property
@@ -98,22 +179,24 @@ class AdaptableLandmarksRule(AbstractRule):
             wcag_criterion="1.3.1",
             level="A",
             impact="moderate",
-            applicability="page"
+            applicability="page",
         )
-    
+
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        violations = []
-        has_main = page.evaluate("""() => {
-            return document.querySelector('main') !== null || document.querySelector('[role="main"]') !== null;
-        }""")
-        
-        if not has_main:
-            violations.append({
-                "element": "<body>",
-                "message": "Page is missing a main landmark",
-                "suggestion": "Wrap the primary content of the page in a <main> tag or an element with role='main'"
-            })
-        return violations
+        has_main = page.evaluate(
+            "() => document.querySelector('main') !== null || document.querySelector('[role=\"main\"]') !== null"
+        )
+        if has_main:
+            return []
+        return [
+            build_finding(
+                element="<body>",
+                message="Page is missing a main landmark",
+                suggestion="Wrap the primary content in a <main> element or an element with role='main'.",
+                remediation_code="<main id=\"main-content\">\n  <!-- primary page content -->\n</main>",
+            )
+        ]
+
 
 class AdaptableReadingSeqRule(AbstractRule):
     @property
@@ -124,25 +207,27 @@ class AdaptableReadingSeqRule(AbstractRule):
             wcag_criterion="1.3.2",
             level="A",
             impact="serious",
-            applicability="page"
+            applicability="page",
         )
-    
+
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
         violations = []
-        locators = page.locator("[tabindex]").all()
-        for loc in locators:
+        for loc in page.locator("[tabindex]").all():
             tabindex_val = loc.get_attribute("tabindex")
             try:
                 if tabindex_val and int(tabindex_val) > 0:
-                    html_snippet = loc.evaluate("el => el.outerHTML")
-                    violations.append({
-                        "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
-                        "message": "Element uses a positive tabindex which disrupts predictable navigation",
-                        "suggestion": "Use tabindex='0' or '-1' and rely on DOM order for navigation"
-                    })
+                    violations.append(
+                        build_finding(
+                            element=locator_html(loc),
+                            message="Element uses a positive tabindex which disrupts predictable navigation",
+                            suggestion="Use tabindex='0' or '-1' and rely on DOM order for navigation.",
+                            remediation_code='<button tabindex="0">Focusable in DOM order</button>',
+                        )
+                    )
             except ValueError:
-                pass
+                continue
         return violations
+
 
 class ContrastMinimumRule(AbstractRule):
     @property
@@ -153,120 +238,202 @@ class ContrastMinimumRule(AbstractRule):
             wcag_criterion="1.4.3",
             level="AA",
             impact="serious",
-            applicability="text"
+            applicability="text",
         )
-    
+
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        # This is a heuristic/limited check so it doesn't grind performance to a halt
-        violations = []
-        
-        # Inject axe-core or contrast calculation logic if needed, but we can do a simplified JS evaluaton 
-        # or report a generic warning for this phase. To keep execution fast, we warn on inline styles 
-        # that explicitly set low contrast.
-        # Below is a simplified contrast check looking at specific elements.
-        
-        has_contrast_issues = page.evaluate("""() => {
-            // Simplified contrast checking: parsing RGB and calculating luminance is complex in plain JS 
-            // without a library. Returning false for now as a placeholder unless we inject a real library.
-            // A real implementation would parse window.getComputedStyle(el).color and .backgroundColor.
-            return false;
-        }""")
-        
-        # For a true pixel-by-pixel, we would use a specialized engine. We'll leave the full JS out here 
-        # to focus on the structure requested, but conceptually it belongs here.
-        return violations
+        return page.evaluate(
+            """() => {
+                const selector = [
+                    'p', 'span', 'a[href]', 'button', 'label', 'li', 'td', 'th',
+                    'input', 'textarea', 'select', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'
+                ].join(',');
+
+                const parseColor = value => {
+                    if (!value || value === 'transparent') return { r: 0, g: 0, b: 0, a: 0 };
+                    const rgb = value.match(/rgba?\\(([^)]+)\\)/i);
+                    if (rgb) {
+                        const parts = rgb[1].split(',').map(part => Number.parseFloat(part.trim()));
+                        return {
+                            r: parts[0],
+                            g: parts[1],
+                            b: parts[2],
+                            a: Number.isFinite(parts[3]) ? parts[3] : 1,
+                        };
+                    }
+
+                    const hex = value.trim().replace('#', '');
+                    if (hex.length === 3) {
+                        return {
+                            r: Number.parseInt(`${hex[0]}${hex[0]}`, 16),
+                            g: Number.parseInt(`${hex[1]}${hex[1]}`, 16),
+                            b: Number.parseInt(`${hex[2]}${hex[2]}`, 16),
+                            a: 1,
+                        };
+                    }
+                    if (hex.length === 6) {
+                        return {
+                            r: Number.parseInt(hex.slice(0, 2), 16),
+                            g: Number.parseInt(hex.slice(2, 4), 16),
+                            b: Number.parseInt(hex.slice(4, 6), 16),
+                            a: 1,
+                        };
+                    }
+                    return null;
+                };
+
+                const blend = (fg, bg) => {
+                    if (!fg || !bg) return null;
+                    const alpha = Number.isFinite(fg.a) ? fg.a : 1;
+                    if (alpha >= 1) return { r: fg.r, g: fg.g, b: fg.b };
+                    return {
+                        r: Math.round((fg.r * alpha) + (bg.r * (1 - alpha))),
+                        g: Math.round((fg.g * alpha) + (bg.g * (1 - alpha))),
+                        b: Math.round((fg.b * alpha) + (bg.b * (1 - alpha))),
+                    };
+                };
+
+                const luminance = color => {
+                    const channels = [color.r, color.g, color.b].map(value => {
+                        const normalized = value / 255;
+                        return normalized <= 0.03928
+                            ? normalized / 12.92
+                            : ((normalized + 0.055) / 1.055) ** 2.4;
+                    });
+                    return (0.2126 * channels[0]) + (0.7152 * channels[1]) + (0.0722 * channels[2]);
+                };
+
+                const contrastRatio = (a, b) => {
+                    const l1 = luminance(a);
+                    const l2 = luminance(b);
+                    const lighter = Math.max(l1, l2);
+                    const darker = Math.min(l1, l2);
+                    return (lighter + 0.05) / (darker + 0.05);
+                };
+
+                const backgroundFor = el => {
+                    let current = el;
+                    while (current) {
+                        const parsed = parseColor(window.getComputedStyle(current).backgroundColor);
+                        if (parsed && parsed.a > 0) {
+                            return parsed;
+                        }
+                        current = current.parentElement;
+                    }
+                    return { r: 255, g: 255, b: 255, a: 1 };
+                };
+
+                const textFor = el => {
+                    if (['input', 'textarea', 'select'].includes(el.tagName.toLowerCase())) {
+                        return (el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '').trim();
+                    }
+                    return (el.innerText || el.textContent || '').trim();
+                };
+
+                return Array.from(document.querySelectorAll(selector))
+                    .flatMap(el => {
+                        const text = textFor(el);
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+                        if (!text || text.length < 2) return [];
+                        if (rect.width === 0 || rect.height === 0) return [];
+                        if (style.display === 'none' || style.visibility === 'hidden') return [];
+                        if (Number.parseFloat(style.opacity || '1') === 0) return [];
+
+                        const foreground = parseColor(style.color);
+                        const background = backgroundFor(el);
+                        if (!foreground || !background) return [];
+
+                        const resolvedForeground = blend(foreground, background);
+                        const ratio = contrastRatio(resolvedForeground, background);
+                        const fontSize = Number.parseFloat(style.fontSize || '16');
+                        const fontWeight = Number.parseInt(style.fontWeight || '400', 10) || 400;
+                        const isLargeText = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700);
+                        const minimum = isLargeText ? 3 : 4.5;
+
+                        if (ratio + 0.01 >= minimum) return [];
+
+                        const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
+                        return [{
+                            element: html.length > 140 ? `${html.slice(0, 140)}...` : html,
+                            message: `Text contrast ratio ${ratio.toFixed(2)}:1 is below the required ${minimum}:1`,
+                            suggestion: 'Increase the difference between foreground and background colors for readable text.',
+                            remediation_code: `${el.tagName.toLowerCase()} {\\n  color: #1a1a1a;\\n  background-color: #ffffff;\\n}`,
+                        }];
+                    })
+                    .slice(0, 20);
+            }"""
+        )
+
 
 class FocusAppearanceRule(AbstractRule):
     @property
     def metadata(self) -> RuleMetadata:
         return RuleMetadata(
             id="focus-appearance",
-            description="Focus indicators must be visible and meet minimum contrast/area requirements",
-            wcag_criterion="1.4.11",
+            description="Focus indicators must be visible and distinct when interactive elements receive focus",
+            wcag_criterion="2.4.7",
             level="AA",
             impact="serious",
-            applicability="interactive"
+            applicability="interactive",
         )
-    
+
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        violations = []
-        locators = page.locator("a[href], button, input, select, textarea, [tabindex='0']").all()
-        for loc in locators:
-            page.evaluate("document.activeElement?.blur()")
-            before_style = loc.evaluate("""el => {
-                const style = window.getComputedStyle(el);
-                return {
-                    outlineStyle: style.outlineStyle,
-                    outlineWidth: style.outlineWidth,
-                    boxShadow: style.boxShadow,
-                    backgroundColor: style.backgroundColor,
-                    borderTopColor: style.borderTopColor,
-                    borderRightColor: style.borderRightColor,
-                    borderBottomColor: style.borderBottomColor,
-                    borderLeftColor: style.borderLeftColor,
-                    borderTopWidth: style.borderTopWidth,
-                    borderRightWidth: style.borderRightWidth,
-                    borderBottomWidth: style.borderBottomWidth,
-                    borderLeftWidth: style.borderLeftWidth
-                };
-            }""")
-            focused_style = loc.evaluate("""el => {
-                el.focus({preventScroll: true, focusVisible: true});
-                const style = window.getComputedStyle(el);
-                return {
-                    outlineStyle: style.outlineStyle,
-                    outlineWidth: style.outlineWidth,
-                    boxShadow: style.boxShadow,
-                    backgroundColor: style.backgroundColor,
-                    borderTopColor: style.borderTopColor,
-                    borderRightColor: style.borderRightColor,
-                    borderBottomColor: style.borderBottomColor,
-                    borderLeftColor: style.borderLeftColor,
-                    borderTopWidth: style.borderTopWidth,
-                    borderRightWidth: style.borderRightWidth,
-                    borderBottomWidth: style.borderBottomWidth,
-                    borderLeftWidth: style.borderLeftWidth,
-                    focused: document.activeElement === el
-                };
-            }""")
+        return collect_focus_indicator_findings(
+            page,
+            message="Interactive element appears to have no distinct focus indicator",
+            suggestion=(
+                "Do not remove the browser focus ring unless you provide a visible replacement such as an "
+                "outline, box-shadow, or border change."
+            ),
+        )
 
-            has_outline = (
-                focused_style["outlineStyle"] != "none"
-                and focused_style["outlineWidth"] != "0px"
-            )
-            has_box_shadow = focused_style["boxShadow"] != "none"
-            has_background_change = (
-                focused_style["backgroundColor"] != before_style["backgroundColor"]
-            )
-            has_border_change = any(
-                focused_style[key] != before_style[key]
-                for key in [
-                    "borderTopColor",
-                    "borderRightColor",
-                    "borderBottomColor",
-                    "borderLeftColor",
-                    "borderTopWidth",
-                    "borderRightWidth",
-                    "borderBottomWidth",
-                    "borderLeftWidth",
-                ]
-            )
-            has_visible_indicator = (
-                focused_style["focused"]
-                and (has_outline or has_box_shadow or has_background_change or has_border_change)
-            )
 
-            page.evaluate("document.activeElement?.blur()")
-            
-            if not has_visible_indicator:
-                html_snippet = loc.evaluate("el => el.outerHTML")
-                violations.append({
-                    "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
-                    "message": "Interactive element appears to have no distinct focus indicator",
-                    "suggestion": "Do not use 'outline: none' without providing an alternative focus style such as box-shadow or background-color changes"
-                })
-                # Cap violations for performance
-                if len(violations) >= 5:
-                    break
-                    
-        return violations
+class InlineLanguageChangeRule(AbstractRule):
+    @property
+    def metadata(self) -> RuleMetadata:
+        return RuleMetadata(
+            id="inline-language-change",
+            description="Language changes within a page should be marked with valid lang attributes",
+            wcag_criterion="3.1.2",
+            level="AA",
+            impact="moderate",
+            applicability="content",
+        )
+
+    def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        return page.evaluate(
+            """() => {
+                const documentLang = (document.documentElement.getAttribute('lang') || '').trim().toLowerCase();
+                const candidates = Array.from(document.querySelectorAll('span, em, strong, i, b, q, cite, abbr'));
+                const suspiciousLanguage = /[\\u00C0-\\u024F\\u0370-\\u03FF\\u0400-\\u04FF]/;
+                const langPattern = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/;
+
+                return candidates.flatMap(el => {
+                    const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
+                    const snippet = html.length > 140 ? `${html.slice(0, 140)}...` : html;
+                    const text = (el.textContent || '').trim();
+                    const lang = (el.getAttribute('lang') || '').trim();
+
+                    if (lang && !langPattern.test(lang)) {
+                        return [{
+                            element: snippet,
+                            message: `Inline lang attribute '${lang}' is not a valid BCP 47 language tag`,
+                            suggestion: "Use a valid language code such as 'fr' or 'es-MX'.",
+                            remediation_code: '<span lang="fr">Bonjour</span>',
+                        }];
+                    }
+
+                    if (!lang && documentLang && text.length >= 2 && suspiciousLanguage.test(text)) {
+                        return [{
+                            element: snippet,
+                            message: "Inline text appears to switch language without a lang attribute",
+                            suggestion: "Wrap foreign-language words or phrases in an element with an appropriate lang attribute.",
+                            finding_type: 'needs_review',
+                        }];
+                    }
+
+                    return [];
+                }).slice(0, 10);
+            }"""
+        )

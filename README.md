@@ -5,23 +5,25 @@ A command-line tool that audits websites for WCAG 2.2 compliance and generates a
 ## Features
 
 - Crawls a website and checks pages for WCAG 2.2 violations using a real headless browser (Playwright)
-- **18 active rules** spanning all four WCAG 2.2 POUR categories (Perceivable, Operable, Understandable, Robust)
+- **34 active rules** spanning all four WCAG 2.2 POUR categories (Perceivable, Operable, Understandable, Robust)
+- Emits a dedicated **Needs Manual Review** bucket for criteria that require human judgment before certification
 - Generates detailed reports with specific fix recommendations
-- Supports multiple output formats (JSON, HTML, Markdown, VPAT 2.5)
+- Supports multiple output formats (JSON, HTML, Markdown, VPAT 2.5) with WCAG-EM sampling metadata
 - Configurable depth and page limits
 - Configurable user agent string
+- Representative page sampling and SPA route hint discovery for site-level reporting
 
 ## Rule Coverage
 
 | Category | Rules | WCAG Criteria |
 |---|---|---|
-| **Perceivable** | Alt text (images, SVGs, ARIA), time-based media captions, landmarks, reading sequence, focus appearance | 1.1.1, 1.2.2, 1.3.1, 1.3.2, 1.4.11 |
-| **Operable** | Keyboard accessibility, skip links, iframe titles, target size (24x24 minimum) | 2.1.1, 2.4.1, 2.5.8 |
-| **Understandable** | Input error identification, input purpose (autocomplete) | 3.3.1, 1.3.5 |
-| **Robust** | ARIA role validation, status messages / live regions | 4.1.2, 4.1.3 |
+| **Perceivable** | Alt text, captions, audio description review, landmarks, reading sequence, contrast minimum, focus indicators, language-of-parts review | 1.1.1, 1.2.2, 1.2.5, 1.3.1, 1.3.2, 1.4.3, 2.4.7, 3.1.2 |
+| **Operable** | Keyboard accessibility, keyboard trap review, enough time controls, skip links, iframe titles, link purpose, focus not obscured, pointer gestures/cancellation, dragging alternatives, target size | 2.1.1, 2.1.2, 2.2.2, 2.4.1, 2.4.4, 2.4.11, 2.5.1, 2.5.2, 2.5.7, 2.5.8 |
+| **Understandable** | Predictable navigation, input error identification, labels/instructions, error suggestions, required indicators, redundant entry review, accessible authentication review, input purpose | 3.2.2, 3.3.1, 3.3.2, 3.3.3, 3.3.7, 3.3.8, 1.3.5 |
+| **Robust** | Expanded ARIA validation, IDREF checks, status messages / live regions | 4.1.2, 4.1.3 |
 | **Core** | Missing labels, missing lang, empty links, empty buttons, missing title, autofocus | Various Level A |
 
-> **Note:** Contrast ratio checking (1.4.3) is defined but stubbed out pending a proper pixel-level analysis library. Treat results as a thorough automated audit subset, not full WCAG 2.2 certification coverage — some criteria require manual review.
+> **Note:** The auditor now mixes hard failures with **Needs Manual Review** findings. Treat the output as a strong certification workflow, not a substitute for manual accessibility validation on subjective criteria.
 
 ## Installation
 

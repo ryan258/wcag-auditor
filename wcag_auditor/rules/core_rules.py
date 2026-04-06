@@ -4,23 +4,38 @@ from . import AbstractRule, RuleMetadata
 from .perceivable_rules import (
     ComplexAltTextRule,
     TimeBasedMediaRule,
+    AudioDescriptionRule,
     AdaptableLandmarksRule,
     AdaptableReadingSeqRule,
     ContrastMinimumRule,
-    FocusAppearanceRule
+    FocusAppearanceRule,
+    InlineLanguageChangeRule,
 )
 from .operable_rules import (
     KeyboardAccessibilityRule,
+    KeyboardTrapRule,
+    EnoughTimeRule,
     NavigableRule,
-    TargetSizeRule
+    LinkPurposeRule,
+    FocusNotObscuredRule,
+    PointerGesturesRule,
+    PointerCancellationRule,
+    DraggingMovementsRule,
+    TargetSizeRule,
 )
 from .understandable_rules import (
+    PredictableNavigationRule,
     InputAssistanceRule,
-    IdentifyInputPurposeRule
+    LabelsInstructionsRule,
+    ErrorSuggestionRule,
+    RequiredFieldIndicatorsRule,
+    RedundantEntryRule,
+    AccessibleAuthenticationRule,
+    IdentifyInputPurposeRule,
 )
 from .robust_rules import (
     ARIAValidationRule,
-    StatusMessagesRule
+    StatusMessagesRule,
 )
 
 class MissingLabelsRule(AbstractRule):
@@ -227,21 +242,36 @@ def get_core_rules() -> List[AbstractRule]:
     return [
         MissingLabelsRule(),
         MissingLangRule(),
+        InlineLanguageChangeRule(),
         EmptyLinksRule(),
         EmptyButtonsRule(),
         MissingTitleRule(),
         AutofocusInputsRule(),
         ComplexAltTextRule(),
         TimeBasedMediaRule(),
+        AudioDescriptionRule(),
         AdaptableLandmarksRule(),
         AdaptableReadingSeqRule(),
-        # ContrastMinimumRule(), # TODO: Stubbed out pending proper contrast calculation library
+        ContrastMinimumRule(),
         FocusAppearanceRule(),
         KeyboardAccessibilityRule(),
+        KeyboardTrapRule(),
+        EnoughTimeRule(),
         NavigableRule(),
+        LinkPurposeRule(),
+        FocusNotObscuredRule(),
+        PointerGesturesRule(),
+        PointerCancellationRule(),
+        DraggingMovementsRule(),
         TargetSizeRule(),
+        PredictableNavigationRule(),
         InputAssistanceRule(),
+        LabelsInstructionsRule(),
+        ErrorSuggestionRule(),
+        RequiredFieldIndicatorsRule(),
+        RedundantEntryRule(),
+        AccessibleAuthenticationRule(),
         IdentifyInputPurposeRule(),
         ARIAValidationRule(),
-        StatusMessagesRule()
+        StatusMessagesRule(),
     ]

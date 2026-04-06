@@ -1,8 +1,10 @@
 """Report generation for WCAG audit results."""
+
 import html
 import json
-from typing import Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List
+
 from wcag_auditor import __version__
 
 
@@ -10,65 +12,155 @@ def _esc(value: Any) -> str:
     """HTML-escape a value for safe interpolation into markup."""
     return html.escape(str(value))
 
+
 class Reporter:
     """Generate reports from audit results."""
-    
+
     def __init__(self, results: Dict[str, Any]):
         self.results = results
-    
+
     def generate(self, format: str) -> str:
         """Generate report in specified format."""
         if format == "json":
             return self._generate_json()
-        elif format == "html":
+        if format == "html":
             return self._generate_html()
-        elif format == "markdown":
+        if format == "markdown":
             return self._generate_markdown()
-        elif format == "vpat":
+        if format == "vpat":
             return self._generate_vpat()
-        else:  # text
-            return self._generate_text()
-    
+        return self._generate_text()
+
+    def _summary(self) -> Dict[str, Any]:
+        return {
+            "base_url": self.results.get("base_url"),
+            "pages_audited": self.results.get("pages_audited", 0),
+            "total_violations": self.results.get("total_violations", 0),
+            "total_manual_reviews": self.results.get("total_manual_reviews", 0),
+            "total_warnings": self.results.get("total_warnings", 0),
+            "total_passed": self.results.get("total_passed", 0),
+        }
+
+    def _render_markdown_findings(self, findings: List[Dict[str, Any]], heading: str) -> str:
+        if not findings:
+            return f"## {heading} (0)\n\nNone.\n"
+
+        blocks = [f"## {heading} ({len(findings)})\n"]
+        for finding in findings:
+            block = [
+                f"### {finding.get('rule', 'Unknown')}",
+                f"- **WCAG:** {finding.get('wcag', 'Unknown')} (Level {finding.get('level', 'Unknown')})",
+                f"- **Impact:** {finding.get('impact', 'Unknown')}",
+                f"- **Description:** {finding.get('description', 'No description')}",
+                f"- **Element:** `{finding.get('element', 'Unknown')}`",
+                f"- **Message:** {finding.get('message', 'No message')}",
+                f"- **Suggestion:** {finding.get('suggestion', 'No suggestion')}",
+            ]
+            remediation = finding.get("remediation_code")
+            if remediation:
+                block.append("\n```html")
+                block.append(remediation)
+                block.append("```")
+            blocks.append("\n".join(block))
+            blocks.append("")
+        return "\n".join(blocks)
+
+    def _render_text_findings(self, findings: List[Dict[str, Any]], heading: str) -> str:
+        lines = [f"{heading.upper()} ({len(findings)})", "-" * (len(heading) + 4), ""]
+        if not findings:
+            lines.append("None.")
+            lines.append("")
+            return "\n".join(lines)
+
+        for finding in findings:
+            lines.append(f"Rule: {finding.get('rule', 'Unknown')}")
+            if finding.get("wcag") or finding.get("level"):
+                wcag = finding.get("wcag", "Unknown")
+                level = finding.get("level", "Unknown")
+                lines.append(f"WCAG: {wcag} (Level {level})")
+            if finding.get("impact"):
+                lines.append(f"Impact: {finding['impact']}")
+            if finding.get("description"):
+                lines.append(f"Description: {finding['description']}")
+            lines.append(f"Element: {finding.get('element', 'Unknown')}")
+            lines.append(f"Message: {finding.get('message', 'No message')}")
+            if finding.get("suggestion"):
+                lines.append(f"Suggestion: {finding['suggestion']}")
+            remediation = finding.get("remediation_code")
+            if remediation:
+                lines.append("Remediation:")
+                lines.append(remediation)
+            lines.append("")
+        return "\n".join(lines)
+
+    def _render_text_messages(self, items: List[Dict[str, Any]], heading: str) -> str:
+        lines = [f"{heading.upper()} ({len(items)})", "-" * (len(heading) + 4), ""]
+        if not items:
+            lines.append("None.")
+            lines.append("")
+            return "\n".join(lines)
+
+        for item in items:
+            lines.append(f"Rule: {item.get('rule', 'Unknown')}")
+            lines.append(f"Message: {item.get('message', 'No message')}")
+            lines.append("")
+        return "\n".join(lines)
+
+    def _render_text_passed_checks(self, items: List[Dict[str, Any]]) -> str:
+        lines = [f"PASSED CHECKS ({len(items)})", "-----------------", ""]
+        if not items:
+            lines.append("None.")
+            lines.append("")
+            return "\n".join(lines)
+
+        for item in items:
+            lines.append(f"Rule: {item.get('rule', 'Unknown')}")
+            lines.append(f"Description: {item.get('description', 'No description')}")
+            lines.append(f"WCAG: {item.get('wcag', 'Unknown')} (Level {item.get('level', 'Unknown')})")
+            lines.append("")
+        return "\n".join(lines)
+
     def _generate_json(self) -> str:
-        """Generate JSON report."""
         report_data = {
             "metadata": {
                 "generated_at": datetime.now().isoformat(),
                 "tool": "WCAG Auditor",
-                "version": __version__
+                "version": __version__,
             },
-            "summary": {
-                "base_url": self.results.get("base_url"),
-                "pages_audited": self.results.get("pages_audited", 0),
-                "total_violations": self.results.get("total_violations", 0),
-                "total_warnings": self.results.get("total_warnings", 0),
-                "total_passed": self.results.get("total_passed", 0)
-            },
+            "summary": self._summary(),
             "violation_types": self.results.get("violation_types", {}),
+            "manual_review_types": self.results.get("manual_review_types", {}),
             "violations": self.results.get("violations", []),
+            "manual_reviews": self.results.get("manual_reviews", []),
             "warnings": self.results.get("warnings", []),
             "passed": self.results.get("passed", []),
-            "pages": self.results.get("pages", [])
+            "pages": self.results.get("pages", []),
+            "sampling": self.results.get("sampling", {}),
+            "wcag_em": self.results.get("wcag_em", {}),
         }
-        
         return json.dumps(report_data, indent=2)
-    
+
     def _generate_html(self) -> str:
-        """Generate HTML report."""
         violations = self.results.get("violations", [])
+        manual_reviews = self.results.get("manual_reviews", [])
         warnings = self.results.get("warnings", [])
         passed = self.results.get("passed", [])
-        
-        html = f"""<!DOCTYPE html>
+        sampling = self.results.get("sampling", {})
+        wcag_em = self.results.get("wcag_em", {})
+        summary = self._summary()
+
+        html_output = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WCAG Audit Report - {_esc(self.results.get('base_url', 'Unknown'))}</title>
+    <title>WCAG Audit Report - {_esc(summary.get('base_url', 'Unknown'))}</title>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        .summary {{ background: #f5f5f5; padding: 15px; border-radius: 5px; }}
+        body {{ font-family: Arial, sans-serif; margin: 20px; line-height: 1.5; }}
+        code, pre {{ font-family: Menlo, Monaco, monospace; }}
+        .summary, .sampling {{ background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
         .violation {{ border-left: 4px solid #d32f2f; padding: 10px; margin: 10px 0; background: #ffebee; }}
+        .manual-review {{ border-left: 4px solid #6a1b9a; padding: 10px; margin: 10px 0; background: #f3e5f5; }}
         .warning {{ border-left: 4px solid #ff9800; padding: 10px; margin: 10px 0; background: #fff3e0; }}
         .passed {{ border-left: 4px solid #4caf50; padding: 10px; margin: 10px 0; background: #e8f5e8; }}
         .rule {{ font-weight: bold; }}
@@ -77,193 +169,192 @@ class Reporter:
         .impact-serious {{ background: #ff9800; color: white; }}
         .impact-moderate {{ background: #ffeb3b; color: black; }}
         .impact-minor {{ background: #9e9e9e; color: white; }}
+        .impact-unknown {{ background: #607d8b; color: white; }}
     </style>
 </head>
 <body>
     <h1>WCAG Audit Report</h1>
     <div class="summary">
         <h2>Summary</h2>
-        <p><strong>URL:</strong> {_esc(self.results.get('base_url', 'Unknown'))}</p>
-        <p><strong>Pages Audited:</strong> {self.results.get('pages_audited', 0)}</p>
-        <p><strong>Total Violations:</strong> {self.results.get('total_violations', 0)}</p>
-        <p><strong>Total Warnings:</strong> {self.results.get('total_warnings', 0)}</p>
-        <p><strong>Total Passed:</strong> {self.results.get('total_passed', 0)}</p>
+        <p><strong>URL:</strong> {_esc(summary.get('base_url', 'Unknown'))}</p>
+        <p><strong>Pages Audited:</strong> {summary.get('pages_audited', 0)}</p>
+        <p><strong>Total Violations:</strong> {summary.get('total_violations', 0)}</p>
+        <p><strong>Needs Manual Review:</strong> {summary.get('total_manual_reviews', 0)}</p>
+        <p><strong>Total Warnings:</strong> {summary.get('total_warnings', 0)}</p>
+        <p><strong>Total Passed:</strong> {summary.get('total_passed', 0)}</p>
         <p><strong>Generated:</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
     </div>
-    
-    <h2>Violations ({len(violations)})</h2>
-    """
-        
-        for violation in violations:
-            impact = _esc(violation.get('impact', 'unknown'))
-            html += f"""
-    <div class="violation">
-        <div class="rule">{_esc(violation.get('rule', 'Unknown'))} <span class="impact impact-{impact}">{impact.upper()}</span></div>
-        <p><strong>Description:</strong> {_esc(violation.get('description', 'No description'))}</p>
-        <p><strong>WCAG:</strong> {_esc(violation.get('wcag', 'Unknown'))} (Level {_esc(violation.get('level', 'Unknown'))})</p>
-        <p><strong>Element:</strong> <code>{_esc(violation.get('element', 'Unknown'))}</code></p>
-        <p><strong>Message:</strong> {_esc(violation.get('message', 'No message'))}</p>
-        <p><strong>Suggestion:</strong> {_esc(violation.get('suggestion', 'No suggestion'))}</p>
+    <div class="sampling">
+        <h2>WCAG-EM Sampling</h2>
+        <p><strong>Strategy:</strong> {_esc(sampling.get('strategy', 'Unknown'))}</p>
+        <p><strong>Sampled Pages:</strong> {_esc(sampling.get('sampled_pages', 0))}</p>
+        <p><strong>Unique Templates:</strong> {_esc(sampling.get('unique_templates', 0))}</p>
+        <p><strong>Methodology:</strong> {_esc(wcag_em.get('methodology', 'Not provided'))}</p>
     </div>
-    """
-        
-        html += f"""
+    <h2>Violations ({len(violations)})</h2>
+"""
+
+        for finding in violations:
+            impact = _esc(finding.get("impact", "unknown"))
+            html_output += f"""
+    <div class="violation">
+        <div class="rule">{_esc(finding.get('rule', 'Unknown'))} <span class="impact impact-{impact}">{impact.upper()}</span></div>
+        <p><strong>Description:</strong> {_esc(finding.get('description', 'No description'))}</p>
+        <p><strong>WCAG:</strong> {_esc(finding.get('wcag', 'Unknown'))} (Level {_esc(finding.get('level', 'Unknown'))})</p>
+        <p><strong>Element:</strong> <code>{_esc(finding.get('element', 'Unknown'))}</code></p>
+        <p><strong>Message:</strong> {_esc(finding.get('message', 'No message'))}</p>
+        <p><strong>Suggestion:</strong> {_esc(finding.get('suggestion', 'No suggestion'))}</p>
+"""
+            if finding.get("remediation_code"):
+                html_output += f"""        <pre>{_esc(finding.get('remediation_code'))}</pre>
+"""
+            html_output += "    </div>\n"
+
+        html_output += f"""
+    <h2>Needs Manual Review ({len(manual_reviews)})</h2>
+"""
+        for finding in manual_reviews:
+            html_output += f"""
+    <div class="manual-review">
+        <div class="rule">{_esc(finding.get('rule', 'Unknown'))}</div>
+        <p><strong>Description:</strong> {_esc(finding.get('description', 'No description'))}</p>
+        <p><strong>WCAG:</strong> {_esc(finding.get('wcag', 'Unknown'))} (Level {_esc(finding.get('level', 'Unknown'))})</p>
+        <p><strong>Element:</strong> <code>{_esc(finding.get('element', 'Unknown'))}</code></p>
+        <p><strong>Message:</strong> {_esc(finding.get('message', 'No message'))}</p>
+        <p><strong>Suggestion:</strong> {_esc(finding.get('suggestion', 'No suggestion'))}</p>
+    </div>
+"""
+
+        html_output += f"""
     <h2>Warnings ({len(warnings)})</h2>
-    """
-        
+"""
         for warning in warnings:
-            html += f"""
+            html_output += f"""
     <div class="warning">
         <div class="rule">{_esc(warning.get('rule', 'Unknown'))}</div>
         <p><strong>Message:</strong> {_esc(warning.get('message', 'No message'))}</p>
     </div>
-    """
-        
-        html += f"""
+"""
+
+        html_output += f"""
     <h2>Passed Checks ({len(passed)})</h2>
-    """
-        
+"""
         for passed_item in passed:
-            html += f"""
+            html_output += f"""
     <div class="passed">
         <div class="rule">{_esc(passed_item.get('rule', 'Unknown'))}</div>
-        <p><strong>Description:</strong> {_esc(passed_item.get('description', 'No description'))} — WCAG {_esc(passed_item.get('wcag', 'Unknown'))} (Level {_esc(passed_item.get('level', 'Unknown'))})</p>
+        <p><strong>Description:</strong> {_esc(passed_item.get('description', 'No description'))} - WCAG {_esc(passed_item.get('wcag', 'Unknown'))} (Level {_esc(passed_item.get('level', 'Unknown'))})</p>
     </div>
-    """
-        
-        html += """
-</body>
-</html>"""
-        
-        return html
-    
+"""
+
+        html_output += "</body>\n</html>"
+        return html_output
+
     def _generate_markdown(self) -> str:
-        """Generate Markdown report."""
-        violations = self.results.get("violations", [])
-        warnings = self.results.get("warnings", [])
-        passed = self.results.get("passed", [])
-        
-        md = f"""# WCAG Audit Report
+        summary = self._summary()
+        sampling = self.results.get("sampling", {})
+        wcag_em = self.results.get("wcag_em", {})
+
+        report = f"""# WCAG Audit Report
 
 ## Summary
 
-- **URL:** {self.results.get('base_url', 'Unknown')}
-- **Pages Audited:** {self.results.get('pages_audited', 0)}
-- **Total Violations:** {self.results.get('total_violations', 0)}
-- **Total Warnings:** {self.results.get('total_warnings', 0)}
-- **Total Passed:** {self.results.get('total_passed', 0)}
+- **URL:** {summary.get('base_url', 'Unknown')}
+- **Pages Audited:** {summary.get('pages_audited', 0)}
+- **Total Violations:** {summary.get('total_violations', 0)}
+- **Needs Manual Review:** {summary.get('total_manual_reviews', 0)}
+- **Total Warnings:** {summary.get('total_warnings', 0)}
+- **Total Passed:** {summary.get('total_passed', 0)}
 - **Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-## Violations ({len(violations)})
+## WCAG-EM Evaluation Summary
+
+- **Sampling strategy:** {sampling.get('strategy', 'Unknown')}
+- **Sampled pages:** {sampling.get('sampled_pages', 0)}
+- **Unique templates:** {sampling.get('unique_templates', 0)}
+- **Methodology:** {wcag_em.get('methodology', 'Not provided')}
+
+### Representative Pages
 
 """
-        
-        for violation in violations:
-            md += f"""### {violation.get('rule', 'Unknown')}
 
-- **WCAG:** {violation.get('wcag', 'Unknown')} (Level {violation.get('level', 'Unknown')})
-- **Impact:** {violation.get('impact', 'Unknown')}
-- **Description:** {violation.get('description', 'No description')}
-- **Element:** `{violation.get('element', 'Unknown')}`
-- **Message:** {violation.get('message', 'No message')}
-- **Suggestion:** {violation.get('suggestion', 'No suggestion')}
+        for sample in wcag_em.get("sample", []):
+            report += f"- **{sample.get('page_type', 'content')}:** {sample.get('url', 'Unknown')} ({sample.get('template', 'Unknown')})\n"
 
-"""
-        
-        md += f"""## Warnings ({len(warnings)})
+        report += "\n"
+        report += self._render_markdown_findings(self.results.get("violations", []), "Violations")
+        report += "\n"
+        report += self._render_markdown_findings(self.results.get("manual_reviews", []), "Needs Manual Review")
+        report += "\n## Warnings ({})\n\n".format(len(self.results.get("warnings", [])))
+        if self.results.get("warnings"):
+            for warning in self.results.get("warnings", []):
+                report += f"- **{warning.get('rule', 'Unknown')}:** {warning.get('message', 'No message')}\n"
+        else:
+            report += "None.\n"
 
-"""
-        
-        for warning in warnings:
-            md += f"""- **{warning.get('rule', 'Unknown')}:** {warning.get('message', 'No message')}
-"""
-        
-        md += f"""
-## Passed Checks ({len(passed)})
+        report += "\n## Passed Checks ({})\n\n".format(len(self.results.get("passed", [])))
+        for passed_item in self.results.get("passed", []):
+            report += (
+                f"- **{passed_item.get('rule', 'Unknown')}:** {passed_item.get('description', 'No description')} "
+                f"(WCAG {passed_item.get('wcag', 'Unknown')})\n"
+            )
 
-"""
-        
-        for passed_item in passed:
-            md += f"""- **{passed_item.get('rule', 'Unknown')}:** {passed_item.get('description', 'No description')} (WCAG {passed_item.get('wcag', 'Unknown')})
-"""
-        
-        return md
-    
+        return report
+
     def _generate_text(self) -> str:
-        """Generate plain text report."""
-        violations = self.results.get("violations", [])
-        warnings = self.results.get("warnings", [])
-        passed = self.results.get("passed", [])
-        
-        text = f"""WCAG AUDIT REPORT
+        summary = self._summary()
+        sampling = self.results.get("sampling", {})
+        wcag_em = self.results.get("wcag_em", {})
+
+        report = f"""WCAG AUDIT REPORT
 ==================
 
-URL: {self.results.get('base_url', 'Unknown')}
-Pages Audited: {self.results.get('pages_audited', 0)}
-Total Violations: {self.results.get('total_violations', 0)}
-Total Warnings: {self.results.get('total_warnings', 0)}
-Total Passed: {self.results.get('total_passed', 0)}
+URL: {summary.get('base_url', 'Unknown')}
+Pages Audited: {summary.get('pages_audited', 0)}
+Total Violations: {summary.get('total_violations', 0)}
+Needs Manual Review: {summary.get('total_manual_reviews', 0)}
+Total Warnings: {summary.get('total_warnings', 0)}
+Total Passed: {summary.get('total_passed', 0)}
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-VIOLATIONS ({len(violations)})
------------------
+WCAG-EM SAMPLING
+----------------
+
+Strategy: {sampling.get('strategy', 'Unknown')}
+Sampled Pages: {sampling.get('sampled_pages', 0)}
+Unique Templates: {sampling.get('unique_templates', 0)}
+Methodology: {wcag_em.get('methodology', 'Not provided')}
 
 """
-        
-        for violation in violations:
-            text += f"""Rule: {violation.get('rule', 'Unknown')}
-WCAG: {violation.get('wcag', 'Unknown')} (Level {violation.get('level', 'Unknown')})
-Impact: {violation.get('impact', 'Unknown')}
-Description: {violation.get('description', 'No description')}
-Element: {violation.get('element', 'Unknown')}
-Message: {violation.get('message', 'No message')}
-Suggestion: {violation.get('suggestion', 'No suggestion')}
+        if wcag_em.get("sample"):
+            report += "Representative Pages:\n"
+            for sample in wcag_em.get("sample", []):
+                report += f"- {sample.get('page_type', 'content')}: {sample.get('url', 'Unknown')} ({sample.get('template', 'Unknown')})\n"
+            report += "\n"
 
-"""
-        
-        text += f"""WARNINGS ({len(warnings)})
------------------
-
-"""
-        
-        for warning in warnings:
-            text += f"""Rule: {warning.get('rule', 'Unknown')}
-Message: {warning.get('message', 'No message')}
-
-"""
-        
-        text += f"""PASSED CHECKS ({len(passed)})
------------------
-
-"""
-        
-        for passed_item in passed:
-            text += f"""Rule: {passed_item.get('rule', 'Unknown')}
-Description: {passed_item.get('description', 'No description')}
-WCAG: {passed_item.get('wcag', 'Unknown')} (Level {passed_item.get('level', 'Unknown')})
-
-"""
-        
-        return text
+        report += self._render_text_findings(self.results.get("violations", []), "Violations")
+        report += "\n"
+        report += self._render_text_findings(self.results.get("manual_reviews", []), "Needs Manual Review")
+        report += "\n"
+        report += self._render_text_messages(self.results.get("warnings", []), "Warnings")
+        report += "\n"
+        report += self._render_text_passed_checks(self.results.get("passed", []))
+        return report
 
     def _generate_vpat(self) -> str:
-        """Generate VPAT 2.5 (Accessibility Conformance Report) Markdown report."""
         violations = self.results.get("violations", [])
-        
-        # Group violations by WCAG criterion
-        criterions = {}
-        for v in violations:
-            wcag = v.get("wcag", "Unknown")
-            if wcag not in criterions:
-                criterions[wcag] = []
-            criterions[wcag].append(v)
-            
-        md = f"""# Accessibility Conformance Report (VPAT® Version 2.5)
+        manual_reviews = self.results.get("manual_reviews", [])
+        criterions: Dict[str, List[Dict[str, Any]]] = {}
+
+        for finding in violations + manual_reviews:
+            criterions.setdefault(finding.get("wcag", "Unknown"), []).append(finding)
+
+        report = f"""# Accessibility Conformance Report (VPAT® Version 2.5)
 
 * **Name of Product/Version:** Automated WCAG Scan
 * **Report Date:** {datetime.now().strftime('%Y-%m-%d')}
 * **Target:** {self.results.get('base_url', 'Unknown')}
-* **Evaluation Methods Used:** Playwright Automated Testing (`wcag-auditor` version {__version__})
+* **Evaluation Methods Used:** Playwright automated testing with representative sampling (`wcag-auditor` version {__version__})
 
 ## Applicable Standards/Guidelines
 
@@ -282,18 +373,15 @@ This report covers the degree of conformance for the following accessibility sta
 | Criteria | Conformance Level | Remarks and Explanations |
 | --- | --- | --- |
 """
-        
-        # We'll just generate the table rows for criteria that had violations
-        for wcag, rules in sorted(criterions.items()):
-            # Use semi-colon delimited list without raw HTML, with properly escaped text
-            rule_messages = [_esc(rule.get('message', '')) for rule in rules]
-            # Deduplicate messages and join
-            unique_messages = list(dict.fromkeys(rule_messages))
-            remarks = "; ".join(unique_messages)
-            
-            md += f"| {wcag} | Partially Supports | Issues found: {remarks} |\n"
-            
+
+        for wcag, findings in sorted(criterions.items()):
+            messages = list(dict.fromkeys(finding.get("message", "") for finding in findings))
+            review_note = " Includes needs-review items." if any(
+                finding.get("finding_type") == "needs_review" for finding in findings
+            ) else ""
+            report += f"| {wcag} | Partially Supports | Issues found: {'; '.join(messages)}.{review_note} |\n"
+
         if not criterions:
-            md += "| Overall | Supports | No violations detected in automated scans |\n"
-            
-        return md
+            report += "| Overall | Supports | No violations detected in automated scans |\n"
+
+        return report

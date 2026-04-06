@@ -1,6 +1,9 @@
 import pytest
 from wcag_auditor.rules.operable_rules import (
-    KeyboardAccessibilityRule, NavigableRule, TargetSizeRule
+    KeyboardAccessibilityRule, KeyboardTrapRule, EnoughTimeRule,
+    NavigableRule, LinkPurposeRule, FocusNotObscuredRule,
+    PointerGesturesRule, PointerCancellationRule, DraggingMovementsRule,
+    TargetSizeRule
 )
 
 def test_keyboard_accessibility_rule(page):
@@ -54,6 +57,217 @@ def test_navigable_rule_missing_skip_link(page):
     
     assert len(violations) == 1
     assert "missing a 'Skip to Content' link" in violations[0]["message"]
+
+def test_keyboard_trap_rule(page):
+    html = """
+    <html>
+        <body>
+            <div role="dialog">
+                <input type="text">
+            </div>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = KeyboardTrapRule()
+    findings = rule.evaluate(page)
+
+    assert len(findings) == 1
+    assert findings[0]["finding_type"] == "needs_review"
+    assert "keyboard trap" in findings[0]["message"]
+
+def test_enough_time_rule(page):
+    html = """
+    <html>
+        <body>
+            <div class="carousel" data-auto-rotate="true">
+                <div>Slide 1</div>
+            </div>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = EnoughTimeRule()
+    violations = rule.evaluate(page)
+
+    assert len(violations) == 1
+    assert "pause, stop, or resume control" in violations[0]["message"]
+
+def test_enough_time_rule_happy_path(page):
+    html = """
+    <html>
+        <body>
+            <div class="carousel" data-auto-rotate="true">
+                <div>Slide 1</div>
+                <button type="button">Pause rotation</button>
+            </div>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = EnoughTimeRule()
+
+    assert rule.evaluate(page) == []
+
+def test_link_purpose_rule(page):
+    html = """
+    <html>
+        <body>
+            <a href="/one">Read more</a>
+            <a href="/two">Read more</a>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = LinkPurposeRule()
+    violations = rule.evaluate(page)
+
+    assert len(violations) == 2
+    assert "generic" in violations[0]["message"]
+
+def test_link_purpose_rule_happy_path(page):
+    html = """
+    <html>
+        <body>
+            <a href="/pricing">View pricing plans</a>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+    rule = LinkPurposeRule()
+
+    assert rule.evaluate(page) == []
+
+def test_focus_not_obscured_rule(page):
+    html = """
+    <html>
+        <head>
+            <style>
+                body { margin: 0; }
+                .header { position: fixed; top: 0; left: 0; right: 0; height: 80px; background: black; z-index: 10; }
+                .target { display: inline-block; margin-top: 0; }
+                main { padding-top: 0; }
+            </style>
+        </head>
+        <body>
+            <div class="header"></div>
+            <main>
+                <a class="target" href="#target">Target</a>
+            </main>
+        </body>
+    </html>
+    """
+    page.set_viewport_size({"width": 1280, "height": 800})
+    page.set_content(html)
+    rule = FocusNotObscuredRule()
+    violations = rule.evaluate(page)
+
+    assert len(violations) == 1
+    assert "obscured" in violations[0]["message"]
+
+def test_focus_not_obscured_rule_does_not_mutate_focus_or_scroll(page):
+    html = """
+    <html>
+        <head>
+            <style>
+                body { margin: 0; }
+                .header { position: fixed; top: 0; left: 0; right: 0; height: 80px; background: black; z-index: 10; }
+            </style>
+            <script>
+                window.focusEvents = 0;
+                window.scrollEvents = 0;
+                document.addEventListener('focusin', () => { window.focusEvents += 1; }, true);
+                window.addEventListener('scroll', () => { window.scrollEvents += 1; });
+            </script>
+        </head>
+        <body>
+            <div class="header"></div>
+            <main>
+                <a class="target" href="#target">Target</a>
+            </main>
+        </body>
+    </html>
+    """
+    page.set_viewport_size({"width": 1280, "height": 800})
+    page.set_content(html)
+    FocusNotObscuredRule().evaluate(page)
+    state = page.evaluate(
+        """() => ({
+            focusEvents: window.focusEvents,
+            scrollEvents: window.scrollEvents,
+            activeTag: document.activeElement ? document.activeElement.tagName : null,
+        })"""
+    )
+
+    assert state["focusEvents"] == 0
+    assert state["scrollEvents"] == 0
+    assert state["activeTag"] == "BODY"
+
+def test_focus_pointer_and_dragging_rules_happy_path(page):
+    html = """
+    <html>
+        <head>
+            <style>
+                body { margin: 0; }
+                .header { position: fixed; top: 0; left: 0; right: 0; height: 80px; background: black; z-index: 10; }
+                main { padding-top: 120px; }
+            </style>
+        </head>
+        <body>
+            <div class="header"></div>
+            <main>
+                <a href="#target">Visible target</a>
+            </main>
+            <section data-gesture="swipe-left">
+                <button type="button">Next slide</button>
+            </section>
+            <button type="button" onpointerdown="start()" onpointerup="finish()">Save</button>
+            <ul>
+                <li draggable="true">
+                    Drag me
+                    <button type="button" aria-label="Move item up">Move up</button>
+                </li>
+            </ul>
+        </body>
+    </html>
+    """
+    page.set_viewport_size({"width": 1280, "height": 800})
+    page.set_content(html)
+
+    assert FocusNotObscuredRule().evaluate(page) == []
+    assert PointerGesturesRule().evaluate(page) == []
+    assert PointerCancellationRule().evaluate(page) == []
+    assert DraggingMovementsRule().evaluate(page) == []
+
+def test_pointer_and_dragging_rules(page):
+    html = """
+    <html>
+        <body>
+            <div data-gesture="swipe-left"></div>
+            <div onpointerdown="startDrag()"></div>
+            <div draggable="true">Drag me</div>
+        </body>
+    </html>
+    """
+    page.set_content(html)
+
+    gesture_findings = PointerGesturesRule().evaluate(page)
+    pointer_findings = PointerCancellationRule().evaluate(page)
+    dragging_findings = DraggingMovementsRule().evaluate(page)
+
+    assert len(gesture_findings) == 1
+    assert gesture_findings[0]["finding_type"] == "needs_review"
+    assert len(pointer_findings) == 1
+    assert "down event" in pointer_findings[0]["message"]
+    assert len(dragging_findings) == 1
+    assert dragging_findings[0]["finding_type"] == "needs_review"
+
+def test_pointer_cancellation_rule_limits_findings(page):
+    html = "<html><body>{}</body></html>".format('<div onpointerdown="start()"></div>' * 12)
+    page.set_content(html)
+    findings = PointerCancellationRule().evaluate(page)
+
+    assert len(findings) == 10
 
 def test_target_size_rule(page):
     html = """

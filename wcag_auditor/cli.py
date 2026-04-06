@@ -26,7 +26,22 @@ def cli():
 @click.option("--output", "-o", type=click.Path(), help="Output file path (default: stdout)")
 @click.option("--timeout", "-t", default=30, help="Request timeout in seconds (default: 30)")
 @click.option("--user-agent", "-u", default=DEFAULT_USER_AGENT, help="User agent string for requests")
-def audit(url: str, depth: int, max_pages: int, output_format: str, output: Optional[str], timeout: int, user_agent: str):
+@click.option(
+    "--sample-strategy",
+    type=click.Choice(["representative", "sequential"]),
+    default="representative",
+    help="Page sampling strategy for site-level reporting (default: representative)",
+)
+def audit(
+    url: str,
+    depth: int,
+    max_pages: int,
+    output_format: str,
+    output: Optional[str],
+    timeout: int,
+    user_agent: str,
+    sample_strategy: str,
+):
     """Audit a website for WCAG 2.2 compliance."""
     try:
         with Progress(
@@ -41,7 +56,8 @@ def audit(url: str, depth: int, max_pages: int, output_format: str, output: Opti
                 max_depth=depth,
                 max_pages=max_pages,
                 timeout=timeout,
-                user_agent=user_agent
+                user_agent=user_agent,
+                sample_strategy=sample_strategy,
             )
             
             results = auditor.audit()
@@ -124,14 +140,21 @@ def check(url: str, timeout: int):
 @click.option("--depth", "-d", default=1, help="Maximum crawl depth (default: 1)")
 @click.option("--max-pages", "-m", default=10, help="Maximum number of pages to audit (default: 10)")
 @click.option("--timeout", "-t", default=30, help="Request timeout in seconds (default: 30)")
-def summary(url: str, depth: int, max_pages: int, timeout: int):
+@click.option(
+    "--sample-strategy",
+    type=click.Choice(["representative", "sequential"]),
+    default="representative",
+    help="Page sampling strategy for site-level reporting (default: representative)",
+)
+def summary(url: str, depth: int, max_pages: int, timeout: int, sample_strategy: str):
     """Generate a summary report of WCAG compliance."""
     try:
         auditor = Auditor(
             base_url=url,
             max_depth=depth,
             max_pages=max_pages,
-            timeout=timeout
+            timeout=timeout,
+            sample_strategy=sample_strategy,
         )
         
         results = auditor.audit()
@@ -140,11 +163,13 @@ def summary(url: str, depth: int, max_pages: int, timeout: int):
         # Generate summary statistics
         total_pages = results.get("pages_audited", 0)
         total_violations = results.get("total_violations", 0)
+        total_manual_reviews = results.get("total_manual_reviews", 0)
         violation_types = results.get("violation_types", {})
         
         console.print(f"\n[bold]WCAG Audit Summary for {url}[/bold]")
         console.print(f"Pages audited: {total_pages}")
         console.print(f"Total violations: {total_violations}")
+        console.print(f"Needs manual review: {total_manual_reviews}")
         
         if violation_types:
             table = Table(title="Violation Types")

@@ -10,6 +10,10 @@ def test_aria_validation_rule(page):
             <div role="combobox" aria-expanded="false" aria-controls="list1"></div>
             <div role="combobox" aria-expanded="false"></div>
             <div role="checked"></div>
+            <div role="command"></div>
+            <div role="checkbox" aria-checked="maybe"></div>
+            <div role="tabpanel" aria-labelledby="missing-tab"></div>
+            <div id="list1"></div>
         </body>
     </html>
     """
@@ -17,10 +21,13 @@ def test_aria_validation_rule(page):
     rule = ARIAValidationRule()
     violations = rule.evaluate(page)
     
-    assert len(violations) == 2
+    assert len(violations) == 5
     messages = [v["message"] for v in violations]
-    assert any("needs both aria-expanded and aria-controls" in m for m in messages)
+    assert any("missing required ARIA attributes" in m for m in messages)
     assert any("Invalid ARIA role" in m for m in messages)
+    assert sum(1 for m in messages if "Invalid ARIA role" in m) == 2
+    assert any("aria-checked must be 'true', 'false', or 'mixed'" in m for m in messages)
+    assert any("references missing element ids" in m for m in messages)
 
 def test_status_messages_rule(page):
     html = """
@@ -44,6 +51,7 @@ def test_robust_rules_happy_path(page):
     <html>
         <body>
             <div role="combobox" aria-expanded="false" aria-controls="list1">Combobox</div>
+            <div id="list1"></div>
             <div class="toast" aria-live="polite">Toast</div>
         </body>
     </html>

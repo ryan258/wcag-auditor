@@ -155,6 +155,20 @@ def test_autofocus_inputs(page):
     violations = rule.evaluate(page)
     assert len(violations) == 1
 
+def test_normalize_template_preserves_slug_paths():
+    auditor = Auditor("https://example.com")
+
+    assert auditor._normalize_template("https://example.com/blog/accessibility-2025-update") == "/blog/accessibility-2025-update"
+
+def test_normalize_template_collapses_strong_identifier_patterns():
+    auditor = Auditor("https://example.com")
+
+    assert auditor._normalize_template("https://example.com/orders/123456") == "/orders/:id"
+    assert (
+        auditor._normalize_template("https://example.com/items/550e8400-e29b-41d4-a716-446655440000")
+        == "/items/:id"
+    )
+
 # Auditor Integration Tests
 
 class MockPage:
@@ -215,6 +229,9 @@ def test_auditor_init_and_audit(mock_pw):
     results = auditor.audit()
     assert results["pages_audited"] > 0
     assert "pages" in results
+    assert "manual_reviews" in results
+    assert "sampling" in results
+    assert "wcag_em" in results
 
 @patch('wcag_auditor.auditor.sync_playwright')
 def test_audit_resets_state_on_reuse(mock_pw):
