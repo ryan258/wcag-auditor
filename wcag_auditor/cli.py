@@ -1,6 +1,8 @@
 """Command-line interface for WCAG Auditor."""
 import click
+import re
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
@@ -72,8 +74,10 @@ def audit(
                 progress.update(task, description="Running synthetic user pass...")
                 try:
                     config = load_user_pass_config(env_file)
-                    report_input["user_pass"] = UserPassRunner(config).run(results)
+                    runner = UserPassRunner(config)
+                    report_input["user_pass"] = runner.run(results)
                 except UserPassConfigError as exc:
+                    runner = None
                     report_input["user_pass"] = {
                         "status": "error",
                         "provider": "openrouter",
@@ -88,11 +92,26 @@ def audit(
                             "Synthetic user-pass output does not replace disabled human participants.",
                         ],
                     }
+            else:
+                runner = None
 
             progress.update(task, description="Generating report...")
             
             reporter = Reporter(report_input)
             report = reporter.generate(output_format)
+
+            # Always save a markdown report to ./reports/
+            progress.update(task, description="Saving report...")
+            report_path = _save_report(reporter, url)
+
+            # Generate executive report if user-pass runner is available
+            if runner is not None:
+                progress.update(task, description="Generating executive report...")
+                try:
+                    exec_data = runner.generate_executive_report(report_input)
+                    _save_executive_report(exec_data, url, report_path.name)
+                except Exception as exc:
+                    console.print("[yellow]Executive report failed: {0}[/yellow]".format(exc))
             
             if output:
                 Path(output).write_text(report, encoding="utf-8")
@@ -214,6 +233,178 @@ def summary(url: str, depth: int, max_pages: int, timeout: int, sample_strategy:
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         sys.exit(1)
+
+def _save_report(reporter: Reporter, url: str) -> Path:
+    """Save a timestamped markdown report to ./reports/."""
+    # Sanitize URL into a filesystem-safe slug
+    slug = re.sub(r"https?://", "", url)
+    slug = re.sub(r"[^\w.-]+", "_", slug).strip("_").lower()
+    slug = slug[:80]  # cap length for filesystem safety
+
+    timestamp = time.strftime("%Y%m%d-%H%M")
+    filename = "{0}-{1}.md".format(slug, timestamp)
+
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
+    report_path = reports_dir / filename
+
+    report_path.write_text(reporter.generate("markdown"), encoding="utf-8")
+    console.print("[dim]Report saved to {0}[/dim]".format(report_path))
+    return report_path
+
+
+def _save_executive_report(exec_data: dict, url: str, raw_report_name: str) -> None:
+    """Render and save the executive report to ./reports/."""
+    slug = re.sub(r"https?://", "", url)
+    slug = re.sub(r"[^\w.-]+", "_", slug).strip("_").lower()
+    slug = slug[:80]
+
+    timestamp = time.strftime("%Y%m%d-%H%M")
+    filename = "{0}-{1}-executive.md".format(slug, timestamp)
+
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
+    report_path = reports_dir / filename
+
+    md = _render_executive_markdown(exec_data, url, raw_report_name)
+    report_path.write_text(md, encoding="utf-8")
+    console.print("[dim]Executive report saved to {0}[/dim]".format(report_path))
+
+
+def _render_executive_markdown(data: dict, url: str, raw_report_name: str) -> str:
+    """Assemble the executive report markdown from structured data."""
+    sc = data.get("scorecard", {})
+    lines = [
+        "# WCAG Compliance Executive Report",
+        "",
+        "**Site:** {0}".format(url),
+        "**Date:** {0}".format(time.strftime("%Y-%m-%d %H:%M")),
+        "**Pages Audited:** {0}".format(sc.get("pages_audited", 0)),
+        "**Risk Assessment:** {0}".format(data.get("risk_assessment", "unknown").upper()),
+        "",
+    ]
+
+    # Executive Summary
+    summary = data.get("executive_summary", "")
+    if summary:
+        lines.append("## Executive Summary")
+        lines.append("")
+        lines.append(summary)
+        lines.append("")
+
+    # Scorecard
+    lines.append("## Compliance Scorecard")
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
+    lines.append("| Pages Audited | {0} |".format(sc.get("pages_audited", 0)))
+    lines.append("| Total Violations | {0} |".format(sc.get("total_violations", 0)))
+    lines.append("| Unique Rules Violated | {0} |".format(sc.get("unique_rules_violated", 0)))
+    lines.append("| Critical Issues | {0} |".format(sc.get("critical_count", 0)))
+    lines.append("| Serious Issues | {0} |".format(sc.get("serious_count", 0)))
+    lines.append("| Moderate Issues | {0} |".format(sc.get("moderate_count", 0)))
+    lines.append("| WCAG Level A Failures | {0} |".format(sc.get("level_a_failures", 0)))
+    lines.append("| WCAG Level AA Failures | {0} |".format(sc.get("level_aa_failures", 0)))
+    lines.append("| Passed Checks | {0} |".format(sc.get("total_passed", 0)))
+    lines.append("| Needs Manual Review | {0} |".format(sc.get("total_manual_reviews", 0)))
+    lines.append("")
+
+    # Priority Actions
+    priority_actions = data.get("priority_actions", [])
+    if priority_actions:
+        lines.append("## Priority Action Plan")
+        lines.append("")
+        icons = {"P1": "\U0001f534", "P2": "\U0001f7e1", "P3": "\U0001f7e2"}
+        for action in priority_actions:
+            if not isinstance(action, dict):
+                continue
+            priority = str(action.get("priority", "P3"))
+            icon = icons.get(priority, "\u26aa")
+            rule = action.get("rule", "unknown")
+            lines.append("### {0} {1}: {2}".format(icon, priority, rule))
+            lines.append("")
+            what_text = action.get("what", "")
+            if what_text:
+                lines.append("**What:** {0}".format(what_text))
+                lines.append("")
+            why_text = action.get("why", "")
+            if why_text:
+                lines.append("**Why:** {0}".format(why_text))
+                lines.append("")
+            fix_text = action.get("fix", "")
+            if fix_text:
+                lines.append("**Fix:**")
+                lines.append("")
+                lines.append(fix_text)
+                lines.append("")
+
+    # Quick Wins
+    quick_wins = data.get("quick_wins", [])
+    if quick_wins:
+        lines.append("## Quick Wins")
+        lines.append("")
+        for win in quick_wins:
+            if isinstance(win, str) and win.strip():
+                lines.append("- {0}".format(win.strip()))
+        lines.append("")
+
+    # Synthetic Reviewer Insights (screen reader + cognitive agents)
+    insights = data.get("synthetic_reviewer_insights", [])
+    if insights:
+        lines.append("## Synthetic Reviewer Insights")
+        lines.append("")
+        lines.append("*These findings come from simulated screen-reader and cognitive-load reviewers "
+                      "examining representative pages.*")
+        lines.append("")
+        for insight in insights:
+            if not isinstance(insight, dict):
+                continue
+            agents = ", ".join(insight.get("agent_ids", []))
+            confidence = insight.get("confidence", 0.0)
+            lines.append("### {0}".format(insight.get("target_text", "General")))
+            lines.append("")
+            lines.append("- **Category:** {0}".format(insight.get("category", "general")))
+            lines.append("- **Reviewers:** {0}".format(agents))
+            lines.append("- **Confidence:** {0:.0%}".format(confidence))
+            issue = insight.get("issue", "")
+            if issue:
+                lines.append("- **Issue:** {0}".format(issue))
+            change = insight.get("suggested_change", "")
+            if change:
+                lines.append("- **Suggested Change:** {0}".format(change))
+            page = insight.get("page_url", "")
+            if page:
+                lines.append("- **Page:** {0}".format(page))
+            lines.append("")
+
+    # Recommended Copy Changes (copywriter agent)
+    rewrites = data.get("rewrite_suggestions", [])
+    if rewrites:
+        lines.append("## Recommended Copy Changes")
+        lines.append("")
+        lines.append("*These suggestions come from a semantic and inclusive copywriter review.*")
+        lines.append("")
+        lines.append("| Location | Current Text | Proposed Text | Rationale |")
+        lines.append("|----------|-------------|---------------|-----------|")
+        for rewrite in rewrites:
+            if not isinstance(rewrite, dict):
+                continue
+            location = str(rewrite.get("location", "")).replace("|", "\\|")
+            current = str(rewrite.get("current_text", "")).replace("|", "\\|")
+            proposed = str(rewrite.get("proposed_text", "")).replace("|", "\\|")
+            rationale = str(rewrite.get("rationale", "")).replace("|", "\\|")
+            lines.append("| {0} | {1} | {2} | {3} |".format(location, current, proposed, rationale))
+        lines.append("")
+
+    # Footer
+    lines.append("---")
+    lines.append("")
+    lines.append("*This report was generated by wcag-auditor with AI analysis via OpenRouter.*")
+    lines.append("*Raw findings: {0}*".format(raw_report_name))
+    lines.append("")
+
+    return "\n".join(lines)
+
 
 def main():
     cli()

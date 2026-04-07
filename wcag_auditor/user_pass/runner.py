@@ -5,9 +5,12 @@ from typing import Any, Dict, List, Optional
 
 from .agents import (
     COPYWRITER_AGENT,
+    EXECUTIVE_AGENT,
     REVIEW_AGENTS,
     build_copywriter_system_prompt,
     build_copywriter_user_prompt,
+    build_executive_system_prompt,
+    build_executive_user_prompt,
     build_review_system_prompt,
     build_review_user_prompt,
 )
@@ -227,6 +230,136 @@ class UserPassRunner:
         themes.sort(key=lambda item: (-len(item["agent_ids"]), -item["confidence"], item.get("page_url") or ""))
         return themes[:10]
 
+    def generate_executive_report(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate an AI-powered executive compliance report.
+
+        Returns a dict with keys: executive_summary, risk_assessment,
+        priority_actions, quick_wins, scorecard, and status.
+        """
+        payload = self._build_executive_payload(results)
+        try:
+            response = self.client.complete_json(
+                model=self.config.models[EXECUTIVE_AGENT.agent_id],
+                system_prompt=build_executive_system_prompt(),
+                user_prompt=build_executive_user_prompt(payload),
+            )
+        except Exception as exc:
+            return {
+                "status": "error",
+                "error": str(exc),
+                "scorecard": payload["scorecard"],
+                "violation_groups": payload["violation_groups"],
+                "executive_summary": "",
+                "risk_assessment": "unknown",
+                "priority_actions": [],
+                "quick_wins": [],
+            }
+
+        return {
+            "status": "completed",
+            "scorecard": payload["scorecard"],
+            "violation_groups": payload["violation_groups"],
+            "executive_summary": str(response.get("executive_summary", "")),
+            "risk_assessment": str(response.get("risk_assessment", "unknown")),
+            "priority_actions": response.get("priority_actions", []),
+            "quick_wins": response.get("quick_wins", []),
+        }
+
+    def _build_executive_payload(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a compact summary payload for the executive writer agent."""
+        violations = results.get("violations", [])
+        manual_reviews = results.get("manual_reviews", [])
+
+        # Group violations by rule
+        groups: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        for v in violations:
+            rule = v.get("rule", "unknown")
+            if rule not in groups:
+                groups[rule] = {
+                    "rule": rule,
+                    "wcag": v.get("wcag", "Unknown"),
+                    "level": v.get("level", "Unknown"),
+                    "impact": v.get("impact", "unknown"),
+                    "description": v.get("description", ""),
+                    "suggestion": v.get("suggestion", ""),
+                    "remediation_code": v.get("remediation_code", ""),
+                    "count": 0,
+                    "sample_elements": [],
+                }
+            groups[rule]["count"] += 1
+            if len(groups[rule]["sample_elements"]) < 3:
+                element = str(v.get("element", ""))[:120]
+                if element and element not in groups[rule]["sample_elements"]:
+                    groups[rule]["sample_elements"].append(element)
+
+        violation_groups = sorted(groups.values(), key=lambda g: (-_impact_rank(g["impact"]), -g["count"]))
+
+        # Compute scorecard
+        level_a = sum(1 for v in violations if v.get("level") == "A")
+        level_aa = sum(1 for v in violations if v.get("level") == "AA")
+        critical = sum(1 for v in violations if v.get("impact") == "critical")
+        serious = sum(1 for v in violations if v.get("impact") == "serious")
+        moderate = sum(1 for v in violations if v.get("impact") == "moderate")
+
+        scorecard = {
+            "url": results.get("base_url", ""),
+            "pages_audited": results.get("pages_audited", 0),
+            "total_violations": len(violations),
+            "total_manual_reviews": len(manual_reviews),
+            "total_passed": results.get("total_passed", 0),
+            "unique_rules_violated": len(groups),
+            "level_a_failures": level_a,
+            "level_aa_failures": level_aa,
+            "critical_count": critical,
+            "serious_count": serious,
+            "moderate_count": moderate,
+        }
+
+        return {
+            "scorecard": scorecard,
+            "violation_groups": violation_groups,
+            "synthetic_reviewer_insights": self._extract_reviewer_insights(results),
+            "rewrite_suggestions": self._extract_rewrite_suggestions(results),
+        }
+
+    def _extract_reviewer_insights(self, results: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract compact synthetic reviewer themes for the executive payload."""
+        user_pass = results.get("user_pass", {})
+        themes = user_pass.get("themes", [])
+        # Cap at 10 themes and trim to essential fields
+        compact = []
+        for theme in themes[:10]:
+            if not isinstance(theme, dict):
+                continue
+            compact.append({
+                "page_url": theme.get("page_url", ""),
+                "category": theme.get("category", ""),
+                "target_text": theme.get("target_text", ""),
+                "issue": theme.get("issue", ""),
+                "suggested_change": theme.get("suggested_change", ""),
+                "agent_ids": theme.get("agent_ids", []),
+                "confidence": theme.get("confidence", 0.0),
+            })
+        return compact
+
+    def _extract_rewrite_suggestions(self, results: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract compact copywriter rewrite suggestions for the executive payload."""
+        user_pass = results.get("user_pass", {})
+        rewrites = user_pass.get("rewrite_suggestions", [])
+        # Cap at 10 and trim to essential fields
+        compact = []
+        for rewrite in rewrites[:10]:
+            if not isinstance(rewrite, dict):
+                continue
+            compact.append({
+                "page_url": rewrite.get("page_url", ""),
+                "location": rewrite.get("location", ""),
+                "current_text": rewrite.get("current_text", ""),
+                "proposed_text": rewrite.get("proposed_text", ""),
+                "rationale": rewrite.get("rationale", ""),
+            })
+        return compact
+
 
 def _clamp_confidence(value: Any) -> float:
     try:
@@ -238,3 +371,8 @@ def _clamp_confidence(value: Any) -> float:
 
 def _normalize_target(value: str) -> str:
     return " ".join(str(value).lower().split())
+
+
+def _impact_rank(impact: str) -> int:
+    """Return a numeric rank for impact severity (higher = more severe)."""
+    return {"critical": 4, "serious": 3, "moderate": 2, "minor": 1}.get(impact, 0)

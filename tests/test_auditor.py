@@ -169,6 +169,56 @@ def test_normalize_template_collapses_strong_identifier_patterns():
         == "/items/:id"
     )
 
+def test_extract_links_supports_routerlink_and_svg_xlink(page):
+    auditor = Auditor("https://example.com")
+    page.set_content(
+        """
+        <html>
+            <body>
+                <a href="/docs">Docs</a>
+                <div data-route="/from-data-route"></div>
+                <button routerLink="/from-router-link">Open</button>
+                <svg xmlns:xlink="http://www.w3.org/1999/xlink">
+                    <a xlink:href="/from-svg-link"><text>SVG link</text></a>
+                </svg>
+                <a href="#section">Skip</a>
+                <a href="mailto:test@example.com">Email</a>
+            </body>
+        </html>
+        """
+    )
+
+    links = auditor._extract_links(page, "https://example.com/start")
+
+    assert links == {
+        "https://example.com/docs",
+        "https://example.com/from-data-route",
+        "https://example.com/from-router-link",
+        "https://example.com/from-svg-link",
+    }
+
+def test_collect_page_insights_supports_routerlink_attributes(page):
+    auditor = Auditor("https://example.com")
+    page.set_content(
+        """
+        <html lang="en">
+            <head>
+                <title>Route test</title>
+            </head>
+            <body>
+                <nav><a href="/docs">Docs</a></nav>
+                <button routerLink="/client-route">Client Route</button>
+                <a href="#/settings">Settings</a>
+            </body>
+        </html>
+        """
+    )
+
+    insights = auditor._collect_page_insights(page, "https://example.com/start")
+
+    assert "/client-route" in insights["route_candidates"]
+    assert "#/settings" in insights["route_candidates"]
+
 # Auditor Integration Tests
 
 class MockPage:

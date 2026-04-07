@@ -97,6 +97,7 @@ def load_user_pass_config(env_file: str = ".env") -> UserPassConfig:
         "screen_reader": env.get("WCAG_USER_PASS_SCREEN_READER_MODEL") or default_model,
         "cognitive": env.get("WCAG_USER_PASS_COGNITIVE_MODEL") or default_model,
         "copywriter": env.get("WCAG_USER_PASS_COPYWRITER_MODEL") or default_model,
+        "executive_writer": env.get("WCAG_USER_PASS_EXECUTIVE_MODEL") or default_model,
     }
 
     missing = [agent_id for agent_id, model in models.items() if not model]

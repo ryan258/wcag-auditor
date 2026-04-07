@@ -31,44 +31,43 @@ A command-line tool that audits websites for WCAG 2.2 compliance and generates a
 ## Installation
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-playwright install chromium
+uv sync
+uv run playwright install chromium
 ```
 
-If you already have a project virtual environment, activate it first and then
-install the package. On macOS/Homebrew Python, running `pip install -e .`
-directly against the system interpreter will fail with an
-`externally-managed-environment` error.
+If you want the shortest path for day-to-day use, run commands through the
+included wrapper script:
+
+```bash
+./run.sh --help
+```
 
 ## Usage
 
 ```bash
 # Basic audit of a website
-wcag-auditor audit https://example.com
+./run.sh audit https://example.com
 
 # Audit with specific depth and output format
-wcag-auditor audit https://example.com --depth 3 --format html --output report.html
+./run.sh audit https://example.com --depth 3 --format html --output report.html
 
 # Run the optional synthetic user pass using OpenRouter models from .env
-wcag-auditor audit https://example.com --user-pass
+./run.sh audit https://example.com --user-pass
 
 # Generate a VPAT 2.5 Accessibility Conformance Report
-wcag-auditor audit https://example.com --format vpat --output vpat-report.md
+./run.sh audit https://example.com --format vpat --output vpat-report.md
 
 # Generate a summary report
-wcag-auditor summary https://example.com
+./run.sh summary https://example.com
 
 # Check a single page
-wcag-auditor check https://example.com/page
+./run.sh check https://example.com/page
 ```
 
-If you do not want to activate the virtual environment, you can run the
-executable directly:
+If you prefer to skip the wrapper script, run the CLI directly with `uv`:
 
 ```bash
-.venv/bin/wcag-auditor audit https://example.com
+uv run wcag-auditor audit https://example.com
 ```
 
 To enable `--user-pass`, copy the example environment file and fill in your API key:
@@ -98,14 +97,14 @@ The user-pass currently runs three agents:
 ## Development
 
 ```bash
-# Install development dependencies inside an activated virtual environment
-pip install -e ".[dev]"
+# Sync the locked project environment
+uv sync --extra dev
 
 # Run tests
-pytest
+uv run pytest
 
 # Run linting
-flake8
+uv run flake8
 ```
 
 ## License

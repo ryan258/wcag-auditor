@@ -45,22 +45,50 @@ class Reporter:
         if not findings:
             return f"## {heading} (0)\n\nNone.\n"
 
-        blocks = [f"## {heading} ({len(findings)})\n"]
+        # Group findings by rule so shared metadata isn't repeated.
+        from collections import OrderedDict
+
+        groups: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         for finding in findings:
+            rule = finding.get("rule", "Unknown")
+            if rule not in groups:
+                groups[rule] = {
+                    "rule": rule,
+                    "wcag": finding.get("wcag", "Unknown"),
+                    "level": finding.get("level", "Unknown"),
+                    "impact": finding.get("impact", "Unknown"),
+                    "description": finding.get("description", "No description"),
+                    "suggestion": finding.get("suggestion", "No suggestion"),
+                    "remediation_code": finding.get("remediation_code"),
+                    "instances": [],
+                }
+            groups[rule]["instances"].append(finding)
+
+        total = len(findings)
+        blocks = [f"## {heading} ({total} across {len(groups)} rules)\n"]
+        for group in groups.values():
+            instances = group["instances"]
             block = [
-                f"### {finding.get('rule', 'Unknown')}",
-                f"- **WCAG:** {finding.get('wcag', 'Unknown')} (Level {finding.get('level', 'Unknown')})",
-                f"- **Impact:** {finding.get('impact', 'Unknown')}",
-                f"- **Description:** {finding.get('description', 'No description')}",
-                f"- **Element:** `{finding.get('element', 'Unknown')}`",
-                f"- **Message:** {finding.get('message', 'No message')}",
-                f"- **Suggestion:** {finding.get('suggestion', 'No suggestion')}",
+                f"### {group['rule']} ({len(instances)})",
+                f"- **WCAG:** {group['wcag']} (Level {group['level']})",
+                f"- **Impact:** {group['impact']}",
+                f"- **Description:** {group['description']}",
+                f"- **Suggestion:** {group['suggestion']}",
             ]
-            remediation = finding.get("remediation_code")
+            remediation = group.get("remediation_code")
             if remediation:
                 block.append("\n```html")
                 block.append(remediation)
                 block.append("```")
+
+            block.append("")
+            block.append("| # | Element | Message |")
+            block.append("|---|---------|---------|")
+            for idx, instance in enumerate(instances, 1):
+                element = str(instance.get("element", "Unknown")).replace("|", "\\|").replace("\n", " ")
+                message = str(instance.get("message", "")).replace("|", "\\|").replace("\n", " ")
+                block.append(f"| {idx} | `{element}` | {message} |")
+
             blocks.append("\n".join(block))
             blocks.append("")
         return "\n".join(blocks)

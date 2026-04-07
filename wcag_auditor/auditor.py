@@ -91,15 +91,21 @@ class Auditor:
         try:
             hrefs = page.evaluate(
                 """() => {
-                    const routeElements = Array.from(document.querySelectorAll(
-                        'a[href], [data-href], [data-route], [routerLink], [routerlink], [xlink\\:href]'
+                    const routeElements = new Set(document.querySelectorAll(
+                        'a[href], [data-href], [data-route], [routerlink]'
                     ));
-                    return routeElements
+
+                    for (const el of document.querySelectorAll('*')) {
+                        if (el.hasAttribute('xlink:href')) {
+                            routeElements.add(el);
+                        }
+                    }
+
+                    return Array.from(routeElements)
                         .map(el =>
                             el.getAttribute('href') ||
                             el.getAttribute('data-href') ||
                             el.getAttribute('data-route') ||
-                            el.getAttribute('routerLink') ||
                             el.getAttribute('routerlink') ||
                             el.getAttribute('xlink:href') ||
                             ''
@@ -176,10 +182,9 @@ class Auditor:
                     .filter(link => link.text.length > 0)
                     .slice(0, 10);
 
-                const routeCandidates = Array.from(document.querySelectorAll('[data-route], [routerLink], [routerlink], a[href^="#/"]'))
+                const routeCandidates = Array.from(document.querySelectorAll('[data-route], [routerlink], a[href^="#/"]'))
                     .map(el =>
                         el.getAttribute('data-route') ||
-                        el.getAttribute('routerLink') ||
                         el.getAttribute('routerlink') ||
                         el.getAttribute('href') ||
                         ''

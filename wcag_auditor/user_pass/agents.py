@@ -111,3 +111,50 @@ def build_copywriter_user_prompt(
         "Structured input:\n"
         "{0}\n".format(json.dumps(payload, indent=2, sort_keys=True))
     )
+
+
+EXECUTIVE_AGENT = AgentDefinition(
+    agent_id="executive_writer",
+    label="Executive Report Writer",
+    role="WCAG compliance analyst and technical writer",
+    focus=(
+        "Synthesize grouped WCAG audit findings into a clear executive summary with a risk assessment, "
+        "a prioritized action plan with prescriptive corrections, and quick-win recommendations."
+    ),
+)
+
+
+def build_executive_system_prompt() -> str:
+    """Return the system prompt for the executive report writer."""
+
+    return (
+        "You are a WCAG compliance analyst writing an executive report for a website owner. "
+        "Analyze the grouped violation data AND the synthetic reviewer insights (from simulated "
+        "screen-reader and cognitive-load reviewers) to produce an actionable remediation plan. "
+        "Be specific and prescriptive — tell the reader exactly what to change and how. "
+        "For each violation group, explain what is wrong, why it matters legally and for users, "
+        "and provide concrete code-level fixes. "
+        "When synthetic_reviewer_insights are present, weave those user-experience observations "
+        "into the executive summary and relevant priority actions — they represent what real "
+        "assistive-technology users and people with cognitive disabilities would likely experience. "
+        "When rewrite_suggestions are present, include the best ones as actionable copy changes. "
+        "Return JSON only with this shape: "
+        '{"executive_summary": "2-3 paragraph markdown string", '
+        '"risk_assessment": "one of: critical, high, moderate, low", '
+        '"priority_actions": [{"rule": "string", "priority": "P1|P2|P3", '
+        '"what": "string", "why": "string", "fix": "markdown string with code examples"}], '
+        '"quick_wins": ["string"]}. '
+        "Order priority_actions by impact (critical first). "
+        "Keep quick_wins to at most 5 items. "
+        "Do not invent violations that are not in the input data."
+    )
+
+
+def build_executive_user_prompt(summary_payload: Dict[str, Any]) -> str:
+    """Return the user prompt with pre-processed audit data for the executive writer."""
+
+    return (
+        "Write a prescriptive WCAG compliance executive report based on this audit data.\n\n"
+        "Structured input:\n"
+        "{0}\n".format(json.dumps(summary_payload, indent=2, sort_keys=True))
+    )
