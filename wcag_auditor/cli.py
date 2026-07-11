@@ -43,6 +43,7 @@ def cli():
 @click.option("--include", "-i", "includes", multiple=True, help="Glob or regex URL pattern to include in the crawl (repeatable)")
 @click.option("--exclude", "-x", "excludes", multiple=True, help="Glob or regex URL pattern to exclude from the crawl (repeatable)")
 @click.option("--delay", type=int, default=0, help="Delay in milliseconds between page requests (default: 0)")
+@click.option("--max-findings-per-rule", type=click.IntRange(min=1), default=20, show_default=True, help="Maximum findings retained per rule on each page")
 @click.option("--respect-robots/--no-respect-robots", default=True, help="Respect robots.txt settings (default: True)")
 @click.option("--fail-on", type=click.Choice(["minor", "moderate", "serious", "critical"]), help="Exit with code 1 if violations at or above this impact exist")
 @click.option("--baseline", type=click.Path(), help="Path to baseline JSON file for known issues suppression")
@@ -61,6 +62,7 @@ def audit(
     includes: tuple[str, ...],
     excludes: tuple[str, ...],
     delay: int,
+    max_findings_per_rule: int,
     respect_robots: bool,
     fail_on: Optional[str],
     baseline: Optional[str],
@@ -98,6 +100,7 @@ def audit(
                 includes=list(includes),
                 excludes=list(excludes),
                 delay=delay,
+                max_findings_per_rule=max_findings_per_rule,
                 respect_robots=respect_robots
             )
 
@@ -400,6 +403,7 @@ def baseline():
 @click.option("--include", "-i", "includes", multiple=True, help="Glob or regex URL pattern to include (repeatable)")
 @click.option("--exclude", "-x", "excludes", multiple=True, help="Glob or regex URL pattern to exclude (repeatable)")
 @click.option("--delay", type=int, default=0, help="Delay in milliseconds between page requests (default: 0)")
+@click.option("--max-findings-per-rule", type=click.IntRange(min=1), default=20, show_default=True, help="Maximum findings retained per rule on each page")
 @click.option("--respect-robots/--no-respect-robots", default=True, help="Respect robots.txt settings (default: True)")
 def baseline_update(
     url: str,
@@ -413,6 +417,7 @@ def baseline_update(
     includes: tuple[str, ...],
     excludes: tuple[str, ...],
     delay: int,
+    max_findings_per_rule: int,
     respect_robots: bool,
 ):
     """Run audit and save all current violations to a baseline file."""
@@ -436,6 +441,7 @@ def baseline_update(
                 includes=list(includes),
                 excludes=list(excludes),
                 delay=delay,
+                max_findings_per_rule=max_findings_per_rule,
                 respect_robots=respect_robots
             )
 

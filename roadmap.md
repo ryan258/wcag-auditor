@@ -6,9 +6,7 @@ This document contains only forward-looking themes. Completed work is recorded i
 
 ## Next: trustworthy coverage
 
-- Detect modern event-bound controls without treating listener presence as proof of keyboard support.
-- Perform real focus-and-scroll checks for Focus Not Obscured.
-- Finish consistent truncation metadata and a configurable finding cap across every rule.
+- Finish consistent truncation metadata for legacy rule-local caps.
 - Make language-dependent heuristics safe for non-English pages.
 - Add high-signal rules for heading structure, viewport zoom, and focusable content hidden from the accessibility tree.
 

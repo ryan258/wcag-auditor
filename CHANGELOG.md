@@ -3,7 +3,18 @@
 This file records completed work. The active future plan lives in
 [roadmap.md](roadmap.md) and [docs/UPDATE-IDEAS.md](docs/UPDATE-IDEAS.md).
 
-## Unreleased — Tranche 1: trustworthy professional workflow
+## Unreleased
+
+### Tranche 2: interaction evidence and finding caps
+
+#### Added
+
+- Review-only heuristics for non-focusable custom keyboard controls and custom pointer controls.
+- A real Focus Not Obscured pass that focuses each candidate, measures persistent overlay coverage,
+  and restores the original focus and scroll state.
+- `--max-findings-per-rule` for audit and baseline commands, with engine-level truncation metadata.
+
+### Tranche 1: trustworthy professional workflow
 
 ### Added
 

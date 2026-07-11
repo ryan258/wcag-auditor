@@ -23,6 +23,18 @@ def test_keyboard_accessibility_rule(page):
     assert len(violations) == 1
     assert "lacks keyboard event handlers" in violations[0]["message"]
 
+
+def test_keyboard_accessibility_rule_reviews_non_focusable_button_roles(page):
+    page.set_content(
+        '<div role="button" style="cursor: pointer">Open menu</div>'
+    )
+
+    findings = KeyboardAccessibilityRule().evaluate(page)
+
+    assert len(findings) == 1
+    assert findings[0]["finding_type"] == "needs_review"
+    assert "not keyboard focusable" in findings[0]["message"]
+
 def test_navigable_rule(page):
     html = """
     <html>
@@ -165,7 +177,7 @@ def test_focus_not_obscured_rule(page):
     assert len(violations) == 1
     assert "obscured" in violations[0]["message"]
 
-def test_focus_not_obscured_rule_does_not_mutate_focus_or_scroll(page):
+def test_focus_not_obscured_rule_restores_page_state_after_focusing(page):
     html = """
     <html>
         <head>
@@ -199,8 +211,7 @@ def test_focus_not_obscured_rule_does_not_mutate_focus_or_scroll(page):
         })"""
     )
 
-    assert state["focusEvents"] == 0
-    assert state["scrollEvents"] == 0
+    assert state["focusEvents"] > 0
     assert state["activeTag"] == "BODY"
 
 def test_focus_pointer_and_dragging_rules_happy_path(page):
@@ -261,6 +272,18 @@ def test_pointer_and_dragging_rules(page):
     assert "down event" in pointer_findings[0]["message"]
     assert len(dragging_findings) == 1
     assert dragging_findings[0]["finding_type"] == "needs_review"
+
+
+def test_pointer_cancellation_rule_reviews_custom_pointer_controls(page):
+    page.set_content(
+        '<div role="button" style="cursor: pointer">Save</div>'
+    )
+
+    findings = PointerCancellationRule().evaluate(page)
+
+    assert len(findings) == 1
+    assert findings[0]["finding_type"] == "needs_review"
+    assert "custom pointer control" in findings[0]["message"]
 
 def test_pointer_cancellation_rule_limits_findings(page):
     html = "<html><body>{}</body></html>".format('<div onpointerdown="start()"></div>' * 12)

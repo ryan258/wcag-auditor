@@ -94,6 +94,59 @@ def test_should_visit_allows_discovered_urls_when_robots_could_not_be_loaded():
     # must not silently reduce a crawl to its seed page.
     assert auditor._should_visit("https://example.com/next") is True
 
+
+def test_check_page_caps_rule_findings_and_marks_truncation(page):
+    page.set_content("<title>Example</title>")
+    rule = MagicMock()
+    rule.metadata = RuleMetadata(
+        id="many-findings",
+        description="Many findings",
+        wcag_criterion="1.1.1",
+        level="A",
+        impact="serious",
+        applicability="page",
+    )
+    rule.evaluate.return_value = [
+        {"element": f"<div id='item-{index}'></div>", "message": "Issue", "suggestion": "Fix"}
+        for index in range(3)
+    ]
+    auditor = Auditor(
+        base_url="https://example.com",
+        respect_robots=False,
+        max_findings_per_rule=2,
+    )
+    auditor.wcag_rules = [rule]
+
+    with patch.object(
+        auditor,
+        "_collect_page_insights",
+        return_value={"template": "/", "page_type": "home"},
+    ):
+        result = auditor._check_page(page, "https://example.com/")
+
+    assert len(result.violations) == 2
+    assert all(finding["truncated"] for finding in result.violations)
+    assert all(finding["total"] == 3 for finding in result.violations)
+
+
+@patch("wcag_auditor.cli.Auditor")
+def test_cli_passes_max_findings_per_rule_to_auditor(mock_auditor_class):
+    mock_auditor_class.return_value.audit.return_value = {
+        "base_url": "https://example.com",
+        "violations": [],
+        "manual_reviews": [],
+        "passed": [],
+        "warnings": [],
+    }
+
+    result = CliRunner().invoke(
+        cli,
+        ["audit", "https://example.com", "--max-findings-per-rule", "7"],
+    )
+
+    assert result.exit_code == 0
+    assert mock_auditor_class.call_args.kwargs["max_findings_per_rule"] == 7
+
 @patch("wcag_auditor.auditor.sync_playwright")
 def test_auditor_storage_state_and_delay(mock_sync_playwright):
     mock_playwright = mock_sync_playwright.return_value.__enter__.return_value

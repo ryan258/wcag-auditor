@@ -20,6 +20,7 @@ class KeyboardAccessibilityRule(AbstractRule):
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
         violations = []
+        reported_elements = set()
         for loc in page.locator(r"[onclick], [ng-click], [v-on\:click]").all():
             tag = loc.evaluate("el => el.tagName.toLowerCase()")
             if tag in ["button", "a", "input", "select", "textarea"]:
@@ -31,9 +32,10 @@ class KeyboardAccessibilityRule(AbstractRule):
             tabindex = loc.get_attribute("tabindex")
 
             if not has_key_handler and tabindex is None:
+                element = locator_html(loc)
                 violations.append(
                     build_finding(
-                        element=locator_html(loc),
+                        element=element,
                         message="Custom interactive element lacks keyboard event handlers or tabindex",
                         suggestion="Add tabindex='0' and keyboard handlers that mirror the click behavior.",
                         remediation_code=(
@@ -42,6 +44,35 @@ class KeyboardAccessibilityRule(AbstractRule):
                         ),
                     )
                 )
+                reported_elements.add(element)
+
+        heuristic_findings = page.evaluate(
+            """() => {
+                const nativeInteractive = el => el.matches(
+                    'a[href], button, input, select, textarea, summary, iframe'
+                );
+                const focusable = el => el.tabIndex >= 0 || el.isContentEditable;
+                return Array.from(document.querySelectorAll('*'))
+                    .filter(el => {
+                        const role = (el.getAttribute('role') || '').toLowerCase();
+                        return ['button', 'link'].includes(role)
+                            || window.getComputedStyle(el).cursor === 'pointer';
+                    })
+                    .filter(el => !nativeInteractive(el) && !focusable(el))
+                    .map(el => {
+                        const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
+                        return {
+                            element: html.length > 140 ? `${html.slice(0, 140)}...` : html,
+                            message: 'Potential custom interactive element is not keyboard focusable',
+                            suggestion: 'Verify that the control is interactive; if it is, add tabindex="0" and keyboard handling that matches pointer behavior.',
+                            finding_type: 'needs_review',
+                        };
+                    });
+            }"""
+        )
+        for finding in heuristic_findings:
+            if finding["element"] not in reported_elements:
+                violations.append(finding)
         return violations
 
 
@@ -306,135 +337,45 @@ class FocusNotObscuredRule(AbstractRule):
                     return rect.top <= 8 || (window.innerHeight - rect.bottom) <= 8;
                 });
 
-                const getStableSelector = (element) => {
-                    const testIdAttrs = ['data-testid', 'data-test-id', 'data-test', 'data-qa'];
-                    const isUnique = (sel) => {
-                        try {
-                            return document.querySelectorAll(sel).length === 1;
-                        } catch (e) {
-                            return false;
-                        }
-                    };
-
-                    for (const attr of testIdAttrs) {
-                        if (element.hasAttribute(attr)) {
-                            const val = element.getAttribute(attr);
-                            if (val) {
-                                const sel = `[${attr}="${CSS.escape(val)}"]`;
-                                if (isUnique(sel)) return sel;
-                            }
-                        }
-                    }
-
-                    if (element.id) {
-                        const sel = `#${CSS.escape(element.id)}`;
-                        if (isUnique(sel)) return sel;
-                    }
-
-                    const path = [];
-                    let current = element;
-                    while (current && current.nodeType === Node.ELEMENT_NODE) {
-                        let tag = current.tagName.toLowerCase();
-                        let hasUniqueAttr = false;
-
-                        for (const attr of testIdAttrs) {
-                            if (current.hasAttribute(attr)) {
-                                const val = current.getAttribute(attr);
-                                if (val) {
-                                    tag += `[${attr}="${CSS.escape(val)}"]`;
-                                    hasUniqueAttr = true;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (!hasUniqueAttr && current.id) {
-                            tag += `#${CSS.escape(current.id)}`;
-                            hasUniqueAttr = true;
-                        }
-
-                        if (hasUniqueAttr) {
-                            path.unshift(tag);
-                            const fullSel = path.join(' > ');
-                            if (isUnique(fullSel)) {
-                                return fullSel;
-                            }
-                        } else {
-                            let sibling = current;
-                            let nth = 1;
-                            while (sibling.previousElementSibling) {
-                                sibling = sibling.previousElementSibling;
-                                if (sibling.tagName === current.tagName) {
-                                    nth++;
-                                }
-                            }
-
-                            let hasSameTagSiblings = false;
-                            let sib = current.nextElementSibling;
-                            while (sib) {
-                                if (sib.tagName === current.tagName) {
-                                    hasSameTagSiblings = true;
-                                    break;
-                                }
-                                sib = sib.nextElementSibling;
-                            }
-                            sib = current.previousElementSibling;
-                            while (sib) {
-                                if (sib.tagName === current.tagName) {
-                                    hasSameTagSiblings = true;
-                                    break;
-                                }
-                                sib = sib.previousElementSibling;
-                            }
-
-                            if (hasSameTagSiblings) {
-                                tag += `:nth-of-type(${nth})`;
-                            }
-                            path.unshift(tag);
-                        }
-                        current = current.parentElement;
-                    }
-                    return path.join(' > ');
-                };
-
-                const intersection = (a, b) => {
-                    const x = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
-                    const y = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
-                    return x * y;
-                };
-
                 if (overlays.length === 0) return [];
 
                 const results = [];
 
-                for (const el of focusable) {
-                    const targetRect = el.getBoundingClientRect();
-                    const isInViewport = (
-                        targetRect.bottom > 0 &&
-                        targetRect.top < window.innerHeight &&
-                        targetRect.right > 0 &&
-                        targetRect.left < window.innerWidth
-                    );
-                    if (!isInViewport) {
-                        continue;
-                    }
+                const initialFocus = document.activeElement;
+                const initialScroll = { x: window.scrollX, y: window.scrollY };
+                try {
+                    for (const el of focusable) {
+                        el.focus({ preventScroll: false, focusVisible: true });
+                        if (document.activeElement !== el) continue;
 
-                    const obscured = overlays.some(overlay => {
-                        if (overlay === el || overlay.contains(el) || el.contains(overlay)) return false;
-                        return intersection(targetRect, overlay.getBoundingClientRect()) > 0;
-                    });
-
-                    if (obscured) {
-                        const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
-                        results.push({
-                            element: html.length > 140 ? `${html.slice(0, 140)}...` : html,
-                            selector: getStableSelector(el),
-                            message: 'Focused element appears to be obscured by a sticky header or footer',
-                            suggestion: 'Add scroll-margin or adjust sticky UI so focused controls remain fully visible.',
-                            remediation_code: ':focus-visible { scroll-margin-top: 6rem; scroll-margin-bottom: 4rem; }',
-                            finding_type: 'needs_review'
+                        const targetRect = el.getBoundingClientRect();
+                        const fullyObscured = overlays.some(overlay => {
+                            if (overlay === el || overlay.contains(el) || el.contains(overlay)) return false;
+                            const overlayRect = overlay.getBoundingClientRect();
+                            return overlayRect.left <= targetRect.left
+                                && overlayRect.right >= targetRect.right
+                                && overlayRect.top <= targetRect.top
+                                && overlayRect.bottom >= targetRect.bottom;
                         });
+
+                        if (fullyObscured) {
+                            const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
+                            results.push({
+                                element: html.length > 140 ? `${html.slice(0, 140)}...` : html,
+                                message: 'Focused element is fully obscured by persistent sticky UI',
+                                suggestion: 'Add scroll-margin or adjust sticky UI so focused controls remain visible.',
+                                remediation_code: ':focus-visible { scroll-margin-top: 6rem; scroll-margin-bottom: 4rem; }',
+                                finding_type: 'needs_review'
+                            });
+                        }
                     }
+                } finally {
+                    if (initialFocus && initialFocus !== document.body && initialFocus.focus) {
+                        initialFocus.focus({ preventScroll: true });
+                    } else {
+                        document.activeElement?.blur();
+                    }
+                    window.scrollTo(initialScroll.x, initialScroll.y);
                 }
 
                 return results;
@@ -525,8 +466,10 @@ class PointerCancellationRule(AbstractRule):
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
         return page.evaluate(
-            """() => Array.from(document.querySelectorAll('[onmousedown], [onpointerdown], [ontouchstart]'))
-                .flatMap(el => {
+            """() => {
+                const downEventFindings = Array.from(document.querySelectorAll(
+                    '[onmousedown], [onpointerdown], [ontouchstart]'
+                )).flatMap(el => {
                     const hasReleaseHandler = (
                         el.hasAttribute('onmouseup') ||
                         el.hasAttribute('onpointerup') ||
@@ -543,8 +486,29 @@ class PointerCancellationRule(AbstractRule):
                         suggestion: 'Trigger the committed action on click/pointerup instead of pointerdown, or expose an undo path.',
                         remediation_code: '<button onpointerup="activate()">Save</button>',
                     }];
-                })
-                .slice(0, 10)"""
+                });
+                const nativeInteractive = el => el.matches(
+                    'a[href], button, input, select, textarea, summary, iframe'
+                );
+                const reviewFindings = Array.from(document.querySelectorAll('*'))
+                    .filter(el => {
+                        const role = (el.getAttribute('role') || '').toLowerCase();
+                        return ['button', 'link'].includes(role)
+                            || window.getComputedStyle(el).cursor === 'pointer';
+                    })
+                    .filter(el => !nativeInteractive(el))
+                    .filter(el => !el.matches('[onmousedown], [onpointerdown], [ontouchstart]'))
+                    .map(el => {
+                        const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
+                        return {
+                            element: html.length > 140 ? `${html.slice(0, 140)}...` : html,
+                            message: 'Potential custom pointer control needs manual cancellation review',
+                            suggestion: 'Verify that activation occurs on release or that users can cancel or undo the action.',
+                            finding_type: 'needs_review',
+                        };
+                    });
+                return [...downEventFindings, ...reviewFindings].slice(0, 10);
+            }"""
         )
 
 

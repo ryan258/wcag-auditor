@@ -8,25 +8,11 @@ Effort tags: S = hours, M = days, L = a week or more.
 
 ## P0 — Remaining trust and correctness work
 
-### 0.3 Modern keyboard and pointer behavior remains mostly invisible
-
-`KeyboardAccessibilityRule`, `PointerCancellationRule`, and `PredictableNavigationRule` primarily
-inspect inline `on*` attributes. Modern sites commonly use delegated or framework event listeners.
-
-Start with a cheap heuristic for non-focusable `role=button`/`role=link` elements and pointer-styled
-elements. Treat it as a review signal, not proof of a violation. Consider Chromium-only CDP listener
-inspection later, with an explicit limitation for delegated framework listeners. **Effort: S then M**
-
-### 0.5 Complete the Focus Not Obscured interaction check
-
-The current heuristic is correctly routed to `needs_review`, but it still does not focus and scroll a
-target before measuring it. For a bounded sample, focus the element, allow browser scroll-into-view,
-then measure visible overlap with persistent fixed/sticky overlays. **Effort: M**
-
 ### 0.6 Standardize truncation across all rules
 
-Contrast and Focus Not Obscured now expose truncation metadata. Extend the same contract to every
-capped rule, render it uniformly, and expose a `--max-findings-per-rule` option. **Effort: M**
+The engine accepts `--max-findings-per-rule` and records truncation for every result list it caps.
+Finish replacing legacy rule-local JavaScript `.slice()` limits so each rule can report an accurate
+pre-cap total. **Effort: M**
 
 ### 0.7 Make language-dependent heuristics safe
 
@@ -113,7 +99,7 @@ engine, and deduplicate using criterion and element identity. **Effort: M**
 
 ## Recommended sequence
 
-1. Finish trust gaps: 0.3, 0.5–0.7, then reporter consolidation.
+1. Finish trust gaps: 0.6–0.7, then reporter consolidation.
 2. Deliver screenshots, report links, sitemap support, and the accessible HTML report.
 3. Add the small deterministic coverage batch.
 4. Build keyboard walk and optional axe-core execution.

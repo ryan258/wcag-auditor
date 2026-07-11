@@ -64,6 +64,8 @@ class Auditor:
         self.excludes = excludes or []
         self.delay = delay
         self.respect_robots = respect_robots
+        if max_findings_per_rule < 1:
+            raise ValueError("max_findings_per_rule must be at least 1")
         self.max_findings_per_rule = max_findings_per_rule
 
         self.visited_urls: Set[str] = set()
@@ -386,8 +388,17 @@ class Auditor:
 
         for rule in self.wcag_rules:
             try:
-                rule_findings = rule.evaluate(page)
                 meta = rule.metadata
+                if meta.id in {"contrast-minimum", "focus-not-obscured"}:
+                    rule_findings = rule.evaluate(page, cap=self.max_findings_per_rule)
+                else:
+                    rule_findings = rule.evaluate(page)
+                total_findings = len(rule_findings)
+                if total_findings > self.max_findings_per_rule:
+                    rule_findings = rule_findings[:self.max_findings_per_rule]
+                    for finding in rule_findings:
+                        finding["truncated"] = True
+                        finding["total"] = total_findings
                 if rule_findings:
                     for finding in rule_findings:
                         finding_type = finding.get("finding_type", "violation")
