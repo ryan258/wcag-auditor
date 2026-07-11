@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Set
 from playwright.sync_api import Page
 
 from . import AbstractRule, RuleMetadata
-from .helpers import build_finding, locator_html
+from .helpers import build_finding, language_heuristic, locator_html
 
 
 class KeyboardAccessibilityRule(AbstractRule):
@@ -39,15 +39,14 @@ class KeyboardAccessibilityRule(AbstractRule):
                         message="Custom interactive element lacks keyboard event handlers or tabindex",
                         suggestion="Add tabindex='0' and keyboard handlers that mirror the click behavior.",
                         remediation_code=(
-                            '<div tabindex="0" onkeydown="if (event.key === \'Enter\' || event.key === \' \') activate()">'
+                            "<div tabindex=\"0\" onkeydown=\"if (event.key === 'Enter' || event.key === ' ') activate()\">"
                             "\n  Interactive content\n</div>"
                         ),
                     )
                 )
                 reported_elements.add(element)
 
-        heuristic_findings = page.evaluate(
-            """() => {
+        heuristic_findings = page.evaluate("""() => {
                 const nativeInteractive = el => el.matches(
                     'a[href], button, input, select, textarea, summary, iframe'
                 );
@@ -68,8 +67,7 @@ class KeyboardAccessibilityRule(AbstractRule):
                             finding_type: 'needs_review',
                         };
                     });
-            }"""
-        )
+            }""")
         for finding in heuristic_findings:
             if finding["element"] not in reported_elements:
                 violations.append(finding)
@@ -89,8 +87,7 @@ class KeyboardTrapRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        return page.evaluate(
-            """() => {
+        return page.evaluate("""() => {
                 const selectors = 'dialog, [role="dialog"], [aria-modal="true"], [role="menu"], [role="listbox"]';
                 const focusable = 'a[href], button, input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])';
 
@@ -120,10 +117,8 @@ class KeyboardTrapRule(AbstractRule):
                             finding_type: 'needs_review',
                             remediation_code: '<button type="button" aria-label="Close dialog">Close</button>',
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
-        )
+                    });
+            }""")
 
 
 class EnoughTimeRule(AbstractRule):
@@ -139,13 +134,14 @@ class EnoughTimeRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        language, pause_controls = language_heuristic(page, "pause_controls")
         return page.evaluate(
-            """() => {
+            """({ language, pauseControls }) => {
                 const selectors = [
                     'marquee', '[aria-live]', '[role="timer"]', '[data-carousel]', '[data-auto-rotate]',
                     '.carousel', '.slider', '.ticker', '[autoplay]'
                 ].join(',');
-                const pausePattern = /pause|stop|resume|play/i;
+                const isSupportedLanguage = Boolean(pauseControls);
 
                 return Array.from(document.querySelectorAll(selectors))
                     .flatMap(el => {
@@ -159,7 +155,7 @@ class EnoughTimeRule(AbstractRule):
                                 control.value ||
                                 ''
                             ).trim();
-                            return pausePattern.test(label);
+                            return pauseControls?.some(term => label.toLocaleLowerCase().includes(term));
                         });
 
                         if (hasControl) return [];
@@ -168,13 +164,16 @@ class EnoughTimeRule(AbstractRule):
                         const snippet = html.length > 140 ? `${html.slice(0, 140)}...` : html;
                         return [{
                             element: snippet,
-                            message: 'Auto-updating content appears without a pause, stop, or resume control',
+                            message: isSupportedLanguage
+                                ? 'Auto-updating content appears without a pause, stop, or resume control'
+                                : `Auto-updating content needs manual control review because page language "${language}" is not supported by this heuristic`,
                             suggestion: 'Expose controls that let users pause or stop moving, blinking, or auto-advancing content.',
                             remediation_code: '<button type="button" aria-controls="carousel">Pause rotation</button>',
+                            ...(isSupportedLanguage ? {} : { finding_type: 'needs_review' }),
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
+                    });
+            }""",
+            {"language": language, "pauseControls": pause_controls},
         )
 
 
@@ -192,14 +191,12 @@ class NavigableRule(AbstractRule):
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
         violations = []
-        has_skip_link = page.evaluate(
-            """() => Array.from(document.links).some(link => {
+        has_skip_link = page.evaluate("""() => Array.from(document.links).some(link => {
                 const href = link.getAttribute('href') || '';
                 const text = (link.textContent || '').toLowerCase();
                 const label = (link.getAttribute('aria-label') || '').toLowerCase();
                 return href.startsWith('#') && (text.includes('skip') || label.includes('skip'));
-            })"""
-        )
+            })""")
 
         if not has_skip_link:
             violations.append(
@@ -238,16 +235,7 @@ class LinkPurposeRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        generic_text = {
-            "click here",
-            "here",
-            "read more",
-            "more",
-            "learn more",
-            "details",
-            "view",
-            "link",
-        }
+        language, generic_text = language_heuristic(page, "generic_link_text")
 
         links = page.evaluate(
             """() => Array.from(document.querySelectorAll('a[href]')).map(link => {
@@ -271,6 +259,23 @@ class LinkPurposeRule(AbstractRule):
                 };
             })"""
         )
+
+        if generic_text is None:
+            return [
+                build_finding(
+                    element=link["html"],
+                    message=(
+                        f'Link purpose needs manual review because page language "{language}" '
+                        "is not supported by this heuristic"
+                    ),
+                    suggestion="Verify that short link text communicates purpose through its text or programmatic context.",
+                    finding_type="needs_review",
+                )
+                for link in links
+                if link["label"]
+                and not link["hasProgrammaticContext"]
+                and len(link["label"]) <= 32
+            ]
 
         labels_to_hrefs: Dict[str, Set[str]] = {}
         for link in links:
@@ -310,12 +315,11 @@ class FocusNotObscuredRule(AbstractRule):
             level="AA",
             impact="serious",
             applicability="interactive",
-            coverage_type="needs-review-only"
+            coverage_type="needs-review-only",
         )
 
     def evaluate(self, page: Page, cap: int = 10) -> List[Dict[str, Any]]:
-        findings = page.evaluate(
-            """() => {
+        findings = page.evaluate("""() => {
                 const isVisible = el => {
                     const style = window.getComputedStyle(el);
                     const rect = el.getBoundingClientRect();
@@ -379,8 +383,7 @@ class FocusNotObscuredRule(AbstractRule):
                 }
 
                 return results;
-            }"""
-        )
+            }""")
         total_matched = len(findings)
         sliced = findings[:cap]
         for f in sliced:
@@ -402,13 +405,13 @@ class PointerGesturesRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        _, alternatives = language_heuristic(page, "gesture_alternatives")
         return page.evaluate(
-            """() => {
+            """alternatives => {
                 const selectors = [
                     '[data-gesture]', '[data-swipe]', '[data-pinch]', '[data-zoom]',
                     '[onswipe]', '[onpinch]', '[style*="touch-action"]'
                 ].join(',');
-                const altPattern = /next|previous|zoom in|zoom out|open|close|expand|collapse/i;
 
                 return Array.from(document.querySelectorAll(selectors))
                     .flatMap(el => {
@@ -433,7 +436,7 @@ class PointerGesturesRule(AbstractRule):
                                 control.getAttribute('title') ||
                                 ''
                             ).trim();
-                            return altPattern.test(label);
+                            return alternatives?.some(term => label.toLocaleLowerCase().includes(term));
                         });
 
                         if (altControl) return [];
@@ -446,9 +449,9 @@ class PointerGesturesRule(AbstractRule):
                             finding_type: 'needs_review',
                             remediation_code: '<button type="button">Next slide</button>',
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
+                    });
+            }""",
+            alternatives,
         )
 
 
@@ -465,8 +468,7 @@ class PointerCancellationRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        return page.evaluate(
-            """() => {
+        return page.evaluate("""() => {
                 const downEventFindings = Array.from(document.querySelectorAll(
                     '[onmousedown], [onpointerdown], [ontouchstart]'
                 )).flatMap(el => {
@@ -507,9 +509,8 @@ class PointerCancellationRule(AbstractRule):
                             finding_type: 'needs_review',
                         };
                     });
-                return [...downEventFindings, ...reviewFindings].slice(0, 10);
-            }"""
-        )
+                return [...downEventFindings, ...reviewFindings];
+            }""")
 
 
 class DraggingMovementsRule(AbstractRule):
@@ -525,10 +526,10 @@ class DraggingMovementsRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        _, alternatives = language_heuristic(page, "drag_alternatives")
         return page.evaluate(
-            """() => {
+            """alternatives => {
                 const selectors = '[draggable="true"], [ondragstart], [ondrop], [data-draggable], [aria-grabbed]';
-                const altPattern = /move up|move down|reorder|add|remove|previous|next/i;
 
                 return Array.from(document.querySelectorAll(selectors))
                     .flatMap(el => {
@@ -540,7 +541,7 @@ class DraggingMovementsRule(AbstractRule):
                                 control.getAttribute('title') ||
                                 ''
                             ).trim();
-                            return altPattern.test(label);
+                            return alternatives?.some(term => label.toLocaleLowerCase().includes(term));
                         });
 
                         if (hasAlternative) return [];
@@ -553,9 +554,9 @@ class DraggingMovementsRule(AbstractRule):
                             finding_type: 'needs_review',
                             remediation_code: '<button type="button" aria-label="Move item up">Move up</button>',
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
+                    });
+            }""",
+            alternatives,
         )
 
 
@@ -573,7 +574,9 @@ class TargetSizeRule(AbstractRule):
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
         violations = []
-        locators = page.locator("button, a[href], input[type='button'], input[type='submit']").all()
+        locators = page.locator(
+            "button, a[href], input[type='button'], input[type='submit']"
+        ).all()
         for loc in locators:
             box = loc.bounding_box()
             if not box:

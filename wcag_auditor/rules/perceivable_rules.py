@@ -33,8 +33,7 @@ class ComplexAltTextRule(AbstractRule):
                 has_alt = loc.evaluate("el => el.hasAttribute('alt')")
 
             if not has_alt:
-                has_alt = loc.evaluate(
-                    """el => {
+                has_alt = loc.evaluate("""el => {
                         if (el.hasAttribute('aria-label') && el.getAttribute('aria-label').trim().length > 0) return true;
                         if (el.hasAttribute('aria-labelledby')) return true;
                         if (el.tagName.toLowerCase() === 'svg') {
@@ -43,8 +42,7 @@ class ComplexAltTextRule(AbstractRule):
                         }
                         if (el.hasAttribute('title') && el.getAttribute('title').trim().length > 0) return true;
                         return false;
-                    }"""
-                )
+                    }""")
 
             if not has_alt:
                 violations.append(
@@ -79,8 +77,7 @@ class TimeBasedMediaRule(AbstractRule):
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
         findings: List[Dict[str, Any]] = []
         for loc in page.locator("video").all():
-            track_state = loc.evaluate(
-                """el => {
+            track_state = loc.evaluate("""el => {
                     const tracks = Array.from(el.querySelectorAll('track'));
                     const captionTracks = tracks.filter(track =>
                         ['captions', 'subtitles'].includes((track.getAttribute('kind') || '').toLowerCase())
@@ -102,8 +99,7 @@ class TimeBasedMediaRule(AbstractRule):
                         const html = track.outerHTML || '<track>';
                         return html.length > 140 ? `${html.slice(0, 140)}...` : html;
                     }
-                }"""
-            )
+                }""")
 
             if track_state["captionTrackCount"] == 0:
                 findings.append(
@@ -113,8 +109,8 @@ class TimeBasedMediaRule(AbstractRule):
                         suggestion="Add a populated <track kind='captions'> or <track kind='subtitles'> file.",
                         remediation_code=(
                             "<video controls>\n"
-                            "  <source src=\"movie.mp4\" type=\"video/mp4\">\n"
-                            "  <track kind=\"captions\" srclang=\"en\" src=\"captions-en.vtt\" default>\n"
+                            '  <source src="movie.mp4" type="video/mp4">\n'
+                            '  <track kind="captions" srclang="en" src="captions-en.vtt" default>\n'
                             "</video>"
                         ),
                     )
@@ -193,7 +189,7 @@ class AdaptableLandmarksRule(AbstractRule):
                 element="<body>",
                 message="Page is missing a main landmark",
                 suggestion="Wrap the primary content in a <main> element or an element with role='main'.",
-                remediation_code="<main id=\"main-content\">\n  <!-- primary page content -->\n</main>",
+                remediation_code='<main id="main-content">\n  <!-- primary page content -->\n</main>',
             )
         ]
 
@@ -239,12 +235,11 @@ class ContrastMinimumRule(AbstractRule):
             level="AA",
             impact="serious",
             applicability="text",
-            coverage_type="partial-heuristic"
+            coverage_type="partial-heuristic",
         )
 
     def evaluate(self, page: Page, cap: int = 20) -> List[Dict[str, Any]]:
-        findings = page.evaluate(
-            """() => {
+        findings = page.evaluate("""() => {
                 const selector = [
                     'p', 'span', 'a[href]', 'button', 'label', 'li', 'td', 'th',
                     'input', 'textarea', 'select', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'
@@ -546,8 +541,7 @@ class ContrastMinimumRule(AbstractRule):
                 }
 
                 return allFindings;
-            }"""
-        )
+            }""")
         total_matched = len(findings)
         sliced = findings[:cap]
         for f in sliced:
@@ -592,8 +586,7 @@ class InlineLanguageChangeRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        return page.evaluate(
-            """() => {
+        return page.evaluate("""() => {
                 const documentLang = (document.documentElement.getAttribute('lang') || '').trim().toLowerCase();
                 const candidates = Array.from(document.querySelectorAll('span, em, strong, i, b, q, cite, abbr'));
                 const suspiciousLanguage = /[\\u00C0-\\u024F\\u0370-\\u03FF\\u0400-\\u04FF]/;
@@ -624,6 +617,5 @@ class InlineLanguageChangeRule(AbstractRule):
                     }
 
                     return [];
-                }).slice(0, 10);
-            }"""
-        )
+                });
+            }""")

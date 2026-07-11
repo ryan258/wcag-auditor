@@ -6,8 +6,6 @@ This document contains only forward-looking themes. Completed work is recorded i
 
 ## Next: trustworthy coverage
 
-- Finish consistent truncation metadata for legacy rule-local caps.
-- Make language-dependent heuristics safe for non-English pages.
 - Add high-signal rules for heading structure, viewport zoom, and focusable content hidden from the accessibility tree.
 
 ## Next: professional deliverables

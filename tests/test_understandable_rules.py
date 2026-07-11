@@ -1,9 +1,15 @@
 import pytest
 from wcag_auditor.rules.understandable_rules import (
-    PredictableNavigationRule, InputAssistanceRule, LabelsInstructionsRule,
-    ErrorSuggestionRule, RequiredFieldIndicatorsRule, RedundantEntryRule,
-    AccessibleAuthenticationRule, IdentifyInputPurposeRule
+    PredictableNavigationRule,
+    InputAssistanceRule,
+    LabelsInstructionsRule,
+    ErrorSuggestionRule,
+    RequiredFieldIndicatorsRule,
+    RedundantEntryRule,
+    AccessibleAuthenticationRule,
+    IdentifyInputPurposeRule,
 )
+
 
 def test_input_assistance_rule(page):
     html = """
@@ -18,9 +24,10 @@ def test_input_assistance_rule(page):
     page.set_content(html)
     rule = InputAssistanceRule()
     violations = rule.evaluate(page)
-    
+
     assert len(violations) == 1
     assert "lacks an associated error message" in violations[0]["message"]
+
 
 def test_identify_input_purpose_rule(page):
     html = """
@@ -36,9 +43,19 @@ def test_identify_input_purpose_rule(page):
     page.set_content(html)
     rule = IdentifyInputPurposeRule()
     violations = rule.evaluate(page)
-    
+
     assert len(violations) == 1
     assert "missing an autocomplete attribute" in violations[0]["message"]
+
+
+def test_identify_input_purpose_rule_recognizes_spanish_address_fields(page):
+    page.set_content('<html lang="es"><input type="text" name="dirección"></html>')
+
+    findings = IdentifyInputPurposeRule().evaluate(page)
+
+    assert len(findings) == 1
+    assert "missing an autocomplete attribute" in findings[0]["message"]
+
 
 def test_predictable_navigation_rule(page):
     html = """
@@ -56,6 +73,7 @@ def test_predictable_navigation_rule(page):
 
     assert len(violations) == 1
     assert "value changes" in violations[0]["message"]
+
 
 def test_labels_instructions_and_required_indicator_rules(page):
     html = """
@@ -77,6 +95,28 @@ def test_labels_instructions_and_required_indicator_rules(page):
     assert len(required) == 1
     assert "Required field" in required[0]["message"]
 
+
+def test_required_field_indicators_rule_recognizes_spanish_indicator(page):
+    page.set_content(
+        '<html lang="es"><label for="email">Correo electrónico (obligatorio)</label>'
+        '<input id="email" type="email" required></html>'
+    )
+
+    assert RequiredFieldIndicatorsRule().evaluate(page) == []
+
+
+def test_required_field_indicators_rule_routes_unknown_languages_to_review(page):
+    page.set_content(
+        '<html lang="fr"><label for="email">E-mail obligatoire</label>'
+        '<input id="email" type="email" required></html>'
+    )
+
+    findings = RequiredFieldIndicatorsRule().evaluate(page)
+
+    assert len(findings) == 1
+    assert findings[0]["finding_type"] == "needs_review"
+
+
 def test_error_suggestion_rule(page):
     html = """
     <html>
@@ -92,6 +132,7 @@ def test_error_suggestion_rule(page):
 
     assert len(violations) == 1
     assert "does not suggest how to fix it" in violations[0]["message"]
+
 
 def test_redundant_entry_rule(page):
     html = """
@@ -112,6 +153,7 @@ def test_redundant_entry_rule(page):
     assert findings[0]["finding_type"] == "needs_review"
     assert "more than once" in findings[0]["message"]
 
+
 def test_accessible_authentication_rule(page):
     html = """
     <html>
@@ -129,6 +171,18 @@ def test_accessible_authentication_rule(page):
 
     assert len(violations) == 1
     assert "cognitive challenge" in violations[0]["message"]
+
+
+def test_accessible_authentication_rule_detects_spanish_cognitive_challenge(page):
+    page.set_content(
+        '<html lang="es"><form><input type="password"><p>Resuelve 3 + 4 para continuar</p></form></html>'
+    )
+
+    findings = AccessibleAuthenticationRule().evaluate(page)
+
+    assert len(findings) == 1
+    assert "cognitive challenge" in findings[0]["message"]
+
 
 def test_accessible_authentication_rule_flags_visible_captcha(page):
     html = """
@@ -150,6 +204,17 @@ def test_accessible_authentication_rule_flags_visible_captcha(page):
     assert findings[0]["finding_type"] == "needs_review"
     assert "CAPTCHA" in findings[0]["message"]
 
+
+def test_accessible_authentication_rule_recognizes_spanish_magic_link(page):
+    page.set_content(
+        '<html lang="es"><form><input type="password">'
+        '<div class="g-recaptcha" data-sitekey="demo" style="width: 320px; height: 78px;"></div>'
+        '<button type="button">Envíame un enlace de acceso</button></form></html>'
+    )
+
+    assert AccessibleAuthenticationRule().evaluate(page) == []
+
+
 def test_accessible_authentication_rule_ignores_standard_login(page):
     html = """
     <html>
@@ -166,6 +231,7 @@ def test_accessible_authentication_rule_ignores_standard_login(page):
     rule = AccessibleAuthenticationRule()
 
     assert rule.evaluate(page) == []
+
 
 def test_accessible_authentication_rule_ignores_hidden_captcha_plumbing(page):
     html = """
@@ -185,6 +251,7 @@ def test_accessible_authentication_rule_ignores_hidden_captcha_plumbing(page):
 
     assert rule.evaluate(page) == []
 
+
 def test_predictable_navigation_rule_happy_path(page):
     html = """
     <html>
@@ -201,6 +268,7 @@ def test_predictable_navigation_rule_happy_path(page):
 
     assert rule.evaluate(page) == []
 
+
 def test_error_suggestion_rule_happy_path(page):
     html = """
     <html>
@@ -214,6 +282,7 @@ def test_error_suggestion_rule_happy_path(page):
     rule = ErrorSuggestionRule()
 
     assert rule.evaluate(page) == []
+
 
 def test_form_guidance_rules_happy_path(page):
     html = """
@@ -236,6 +305,7 @@ def test_form_guidance_rules_happy_path(page):
     assert RequiredFieldIndicatorsRule().evaluate(page) == []
     assert RedundantEntryRule().evaluate(page) == []
 
+
 def test_understandable_rules_happy_path(page):
     html = """
     <html>
@@ -251,6 +321,6 @@ def test_understandable_rules_happy_path(page):
     page.set_content(html)
     rule1 = InputAssistanceRule()
     rule2 = IdentifyInputPurposeRule()
-    
+
     assert len(rule1.evaluate(page)) == 0
     assert len(rule2.evaluate(page)) == 0

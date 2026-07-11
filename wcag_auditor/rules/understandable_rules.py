@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 from playwright.sync_api import Page
 
 from . import AbstractRule, RuleMetadata
+from .helpers import language_heuristic
 
 
 class PredictableNavigationRule(AbstractRule):
@@ -18,8 +19,7 @@ class PredictableNavigationRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        return page.evaluate(
-            """() => {
+        return page.evaluate("""() => {
                 const selectors = '[onchange], [oninput], [onfocus], form[onchange], form[oninput]';
                 const navigationScript = /(submit|location\\b|window\\.open|href\\s*=|replace\\()/i;
 
@@ -40,10 +40,8 @@ class PredictableNavigationRule(AbstractRule):
                             suggestion: 'Require an explicit submit or continue action before changing context.',
                             remediation_code: '<button type="submit">Continue</button>',
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
-        )
+                    });
+            }""")
 
 
 class InputAssistanceRule(AbstractRule):
@@ -102,8 +100,7 @@ class LabelsInstructionsRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        return page.evaluate(
-            """() => {
+        return page.evaluate("""() => {
                 const controls = Array.from(document.querySelectorAll('input, select, textarea'));
                 const skipTypes = new Set(['hidden', 'submit', 'button', 'reset', 'image', 'checkbox', 'radio']);
 
@@ -154,9 +151,8 @@ class LabelsInstructionsRule(AbstractRule):
                         suggestion: 'Add helper text that explains the required format, range, or rule.',
                         remediation_code: '<p id="password-help">Use at least 12 characters.</p>\\n<input type="password" aria-describedby="password-help">',
                     }];
-                }).slice(0, 10);
-            }"""
-        )
+                });
+            }""")
 
 
 class ErrorSuggestionRule(AbstractRule):
@@ -172,9 +168,10 @@ class ErrorSuggestionRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        language, error_suggestions = language_heuristic(page, "error_suggestions")
         return page.evaluate(
-            """() => {
-                const suggestionPattern = /(enter|select|choose|must|should|use|include|format|example|at least|match)/i;
+            """({ language, errorSuggestions }) => {
+                const isSupportedLanguage = Boolean(errorSuggestions);
 
                 return Array.from(document.querySelectorAll('[aria-invalid="true"]'))
                     .flatMap(el => {
@@ -197,20 +194,23 @@ class ErrorSuggestionRule(AbstractRule):
                             ['email', 'url', 'tel', 'number', 'password'].includes((el.getAttribute('type') || '').toLowerCase())
                         );
 
-                        if (!canSuggest || !message || suggestionPattern.test(message)) {
+                        if (!canSuggest || !message || errorSuggestions?.some(term => message.toLocaleLowerCase().includes(term))) {
                             return [];
                         }
 
                         const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
                         return [{
                             element: html.length > 140 ? `${html.slice(0, 140)}...` : html,
-                            message: 'Error text identifies a problem but does not suggest how to fix it',
+                            message: isSupportedLanguage
+                                ? 'Error text identifies a problem but does not suggest how to fix it'
+                                : `Error guidance needs manual review because page language "${language}" is not supported by this heuristic`,
                             suggestion: 'Add recovery guidance such as the expected format or a concrete next step.',
                             remediation_code: '<p id="email-error">Enter a valid email address, for example name@example.com.</p>',
+                            ...(isSupportedLanguage ? {} : { finding_type: 'needs_review' }),
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
+                    });
+            }""",
+            {"language": language, "errorSuggestions": error_suggestions},
         )
 
 
@@ -227,9 +227,10 @@ class RequiredFieldIndicatorsRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        language, required_indicators = language_heuristic(page, "required_indicators")
         return page.evaluate(
-            """() => {
-                const markerPattern = /(required|mandatory|\\*)/i;
+            """({ language, requiredIndicators }) => {
+                const isSupportedLanguage = Boolean(requiredIndicators);
 
                 return Array.from(document.querySelectorAll('input, select, textarea'))
                     .flatMap(el => {
@@ -242,20 +243,23 @@ class RequiredFieldIndicatorsRule(AbstractRule):
                             el.closest('fieldset')?.querySelector('legend')?.textContent || '',
                         ].join(' ').trim();
 
-                        if (markerPattern.test(labelText)) {
+                        if (requiredIndicators?.some(term => labelText.toLocaleLowerCase().includes(term))) {
                             return [];
                         }
 
                         const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
                         return [{
                             element: html.length > 140 ? `${html.slice(0, 140)}...` : html,
-                            message: 'Required field is not clearly identified in its label or instructions',
+                            message: isSupportedLanguage
+                                ? 'Required field is not clearly identified in its label or instructions'
+                                : `Required-field indicator needs manual review because page language "${language}" is not supported by this heuristic`,
                             suggestion: 'Add visible required text or an asterisk explained in nearby instructions.',
                             remediation_code: '<label for="email">Email address <span aria-hidden="true">*</span></label>',
+                            ...(isSupportedLanguage ? {} : { finding_type: 'needs_review' }),
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
+                    });
+            }""",
+            {"language": language, "requiredIndicators": required_indicators},
         )
 
 
@@ -272,8 +276,7 @@ class RedundantEntryRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        return page.evaluate(
-            """() => {
+        return page.evaluate("""() => {
                 const purposeTokens = {
                     email: ['email'],
                     phone: ['phone', 'tel'],
@@ -324,10 +327,8 @@ class RedundantEntryRule(AbstractRule):
                             finding_type: 'needs_review',
                             remediation_code: '<label><input type="checkbox" name="same_as_shipping"> Billing address is the same as shipping</label>',
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
-        )
+                    });
+            }""")
 
 
 class AccessibleAuthenticationRule(AbstractRule):
@@ -343,13 +344,17 @@ class AccessibleAuthenticationRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        _, authentication_alternatives = language_heuristic(
+            page, "authentication_alternatives"
+        )
+        _, authentication_challenges = language_heuristic(
+            page, "authentication_challenges"
+        )
         return page.evaluate(
-            """() => {
+            """({ authenticationAlternatives, authenticationChallenges }) => {
                 const authForms = Array.from(document.querySelectorAll('form')).filter(form =>
                     form.querySelector('input[type="password"], input[autocomplete="current-password"], input[autocomplete="one-time-code"]')
                 );
-                const challengePattern = /(captcha|i am not a robot|what is \\d+\\s*[+\\-x]\\s*\\d+|security question|memorize|solve)/i;
-                const altPattern = /(magic link|email me a link|passkey|webauthn|security key|password manager|use another method)/i;
                 const challengeSelector = [
                     '.g-recaptcha',
                     '[data-sitekey]',
@@ -377,8 +382,8 @@ class AccessibleAuthenticationRule(AbstractRule):
                     const text = (form.textContent || '').replace(/\\s+/g, ' ').trim();
                     const html = form.outerHTML || '<form>';
                     const snippet = html.length > 140 ? `${html.slice(0, 140)}...` : html;
-                    const hasAlternative = altPattern.test(text);
-                    const hasTextualChallenge = challengePattern.test(text);
+                    const hasAlternative = authenticationAlternatives?.some(term => text.toLocaleLowerCase().includes(term));
+                    const hasTextualChallenge = authenticationChallenges?.some(term => text.toLocaleLowerCase().includes(term));
                     const hasCaptchaArtifact = Array.from(form.querySelectorAll(challengeSelector)).some(isVisibleChallenge);
 
                     if (hasTextualChallenge && !hasAlternative) {
@@ -400,8 +405,12 @@ class AccessibleAuthenticationRule(AbstractRule):
                     }
 
                     return [];
-                }).slice(0, 10);
-            }"""
+                });
+            }""",
+            {
+                "authenticationAlternatives": authentication_alternatives,
+                "authenticationChallenges": authentication_challenges,
+            },
         )
 
 
@@ -418,9 +427,12 @@ class IdentifyInputPurposeRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
+        language, input_purpose_tokens = language_heuristic(
+            page, "input_purpose_tokens"
+        )
         return page.evaluate(
-            """() => {
-                const tokens = ['address', 'phone', 'email', 'name', 'postal', 'city', 'country'];
+            """({ language, inputPurposeTokens }) => {
+                const isSupportedLanguage = Boolean(inputPurposeTokens);
 
                 return Array.from(document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input:not([type])'))
                     .flatMap(el => {
@@ -432,7 +444,10 @@ class IdentifyInputPurposeRule(AbstractRule):
                             ...(el.labels ? Array.from(el.labels).map(label => label.textContent || '') : []),
                         ].join(' ').toLowerCase();
 
-                        if (!tokens.some(token => descriptor.includes(token))) {
+                        const type = (el.getAttribute('type') || '').toLowerCase();
+                        const likelyPurpose = inputPurposeTokens?.some(token => descriptor.includes(token))
+                            || (!isSupportedLanguage && ['email', 'tel'].includes(type));
+                        if (!likelyPurpose) {
                             return [];
                         }
 
@@ -443,11 +458,14 @@ class IdentifyInputPurposeRule(AbstractRule):
                         const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
                         return [{
                             element: html.length > 140 ? `${html.slice(0, 140)}...` : html,
-                            message: 'Common user-information field is missing an autocomplete attribute',
+                            message: isSupportedLanguage
+                                ? 'Common user-information field is missing an autocomplete attribute'
+                                : `Input purpose needs manual review because page language "${language}" is not supported by this heuristic`,
                             suggestion: 'Add the most specific autocomplete token available for the collected data.',
                             remediation_code: '<input type="email" autocomplete="email">',
+                            ...(isSupportedLanguage ? {} : { finding_type: 'needs_review' }),
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
+                    });
+            }""",
+            {"language": language, "inputPurposeTokens": input_purpose_tokens},
         )

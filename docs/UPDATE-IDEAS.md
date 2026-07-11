@@ -1,24 +1,10 @@
 # UPDATE-IDEAS — Next Improvements for wcag-auditor
 
-This is the active backlog as of 2026-07-11. Completed roadmap work and Tranche 1 are recorded in
+This is the active backlog as of 2026-07-11. Completed roadmap work and implementation tranches are recorded in
 [CHANGELOG.md](../CHANGELOG.md). The operating principle remains: improve the trustworthiness and
 workflow fit of findings before adding broad new coverage.
 
 Effort tags: S = hours, M = days, L = a week or more.
-
-## P0 — Remaining trust and correctness work
-
-### 0.6 Standardize truncation across all rules
-
-The engine accepts `--max-findings-per-rule` and records truncation for every result list it caps.
-Finish replacing legacy rule-local JavaScript `.slice()` limits so each rule can report an accurate
-pre-cap total. **Effort: M**
-
-### 0.7 Make language-dependent heuristics safe
-
-Several rules use English word lists. Move these lists into per-language data selected by document
-language; unknown languages should route the result to `needs_review` rather than pretending an
-English heuristic is definitive. Support user extension later through configuration. **Effort: M**
 
 ## P1 — Remaining professional workflow work
 
@@ -77,7 +63,7 @@ engine, and deduplicate using criterion and element identity. **Effort: M**
 
 - Reuse browser-computed accessible names in name-dependent rules. **M**
 - Add viewport, reduced-motion, dark-mode, and zoom contexts. **M**
-- Add `.wcag-auditor.toml` for rule settings, crawl scope, output, and i18n data. **S–M**
+- Add `.wcag-auditor.toml` for rule settings, crawl scope, output, and extension of built-in i18n data. **S–M**
 
 ## P3 — Differentiators and intelligence
 
@@ -99,8 +85,7 @@ engine, and deduplicate using criterion and element identity. **Effort: M**
 
 ## Recommended sequence
 
-1. Finish trust gaps: 0.6–0.7, then reporter consolidation.
-2. Deliver screenshots, report links, sitemap support, and the accessible HTML report.
-3. Add the small deterministic coverage batch.
-4. Build keyboard walk and optional axe-core execution.
-5. Add configuration, multi-context, diffs, and intelligence features.
+1. Consolidate the reporter model, then deliver screenshots, report links, sitemap support, and the accessible HTML report.
+2. Add the small deterministic coverage batch.
+3. Build keyboard walk and optional axe-core execution.
+4. Add configuration, multi-context, diffs, and intelligence features.

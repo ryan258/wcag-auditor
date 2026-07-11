@@ -5,7 +5,6 @@ from playwright.sync_api import Page
 from . import AbstractRule, RuleMetadata
 from .helpers import build_finding, locator_html
 
-
 VALID_ARIA_ROLES = {
     "alert",
     "alertdialog",
@@ -145,7 +144,16 @@ TOKEN_ATTRIBUTES = {
 }
 ARIA_ATTRIBUTE_SELECTOR = ",".join(
     ["[role]"]
-    + [f"[{attr}]" for attr in sorted(BOOLEAN_ATTRIBUTES | TRISTATE_ATTRIBUTES | NUMERIC_ATTRIBUTES | IDREF_ATTRIBUTES | set(TOKEN_ATTRIBUTES))]
+    + [
+        f"[{attr}]"
+        for attr in sorted(
+            BOOLEAN_ATTRIBUTES
+            | TRISTATE_ATTRIBUTES
+            | NUMERIC_ATTRIBUTES
+            | IDREF_ATTRIBUTES
+            | set(TOKEN_ATTRIBUTES)
+        )
+    ]
 )
 
 
@@ -179,7 +187,9 @@ class ARIAValidationRule(AbstractRule):
                 continue
 
             required_attrs = ROLE_REQUIRED_ATTRIBUTES.get(role, set())
-            missing_attrs = sorted(attr for attr in required_attrs if loc.get_attribute(attr) is None)
+            missing_attrs = sorted(
+                attr for attr in required_attrs if loc.get_attribute(attr) is None
+            )
             if missing_attrs:
                 violations.append(
                     build_finding(
@@ -282,8 +292,7 @@ class StatusMessagesRule(AbstractRule):
         )
 
     def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        return page.evaluate(
-            """() => {
+        return page.evaluate("""() => {
                 const selectors = '.alert, .error, .success, .toast, .snackbar, .notification, [data-status-message]';
                 return Array.from(document.querySelectorAll(selectors))
                     .flatMap(el => {
@@ -300,7 +309,5 @@ class StatusMessagesRule(AbstractRule):
                             suggestion: "Add role='status', role='alert', role='log', or an appropriate aria-live value.",
                             remediation_code: '<div class="toast" role="status" aria-live="polite">Saved</div>',
                         }];
-                    })
-                    .slice(0, 10);
-            }"""
-        )
+                    });
+            }""")

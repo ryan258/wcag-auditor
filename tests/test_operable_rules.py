@@ -1,10 +1,17 @@
 import pytest
 from wcag_auditor.rules.operable_rules import (
-    KeyboardAccessibilityRule, KeyboardTrapRule, EnoughTimeRule,
-    NavigableRule, LinkPurposeRule, FocusNotObscuredRule,
-    PointerGesturesRule, PointerCancellationRule, DraggingMovementsRule,
-    TargetSizeRule
+    KeyboardAccessibilityRule,
+    KeyboardTrapRule,
+    EnoughTimeRule,
+    NavigableRule,
+    LinkPurposeRule,
+    FocusNotObscuredRule,
+    PointerGesturesRule,
+    PointerCancellationRule,
+    DraggingMovementsRule,
+    TargetSizeRule,
 )
+
 
 def test_keyboard_accessibility_rule(page):
     html = """
@@ -19,21 +26,20 @@ def test_keyboard_accessibility_rule(page):
     page.set_content(html)
     rule = KeyboardAccessibilityRule()
     violations = rule.evaluate(page)
-    
+
     assert len(violations) == 1
     assert "lacks keyboard event handlers" in violations[0]["message"]
 
 
 def test_keyboard_accessibility_rule_reviews_non_focusable_button_roles(page):
-    page.set_content(
-        '<div role="button" style="cursor: pointer">Open menu</div>'
-    )
+    page.set_content('<div role="button" style="cursor: pointer">Open menu</div>')
 
     findings = KeyboardAccessibilityRule().evaluate(page)
 
     assert len(findings) == 1
     assert findings[0]["finding_type"] == "needs_review"
     assert "not keyboard focusable" in findings[0]["message"]
+
 
 def test_navigable_rule(page):
     html = """
@@ -49,9 +55,10 @@ def test_navigable_rule(page):
     page.set_content(html)
     rule = NavigableRule()
     violations = rule.evaluate(page)
-    
+
     assert len(violations) == 1
     assert "Iframe missing title attribute" in violations[0]["message"]
+
 
 def test_navigable_rule_missing_skip_link(page):
     html = """
@@ -66,9 +73,10 @@ def test_navigable_rule_missing_skip_link(page):
     page.set_content(html)
     rule = NavigableRule()
     violations = rule.evaluate(page)
-    
+
     assert len(violations) == 1
     assert "missing a 'Skip to Content' link" in violations[0]["message"]
+
 
 def test_keyboard_trap_rule(page):
     html = """
@@ -88,6 +96,7 @@ def test_keyboard_trap_rule(page):
     assert findings[0]["finding_type"] == "needs_review"
     assert "keyboard trap" in findings[0]["message"]
 
+
 def test_enough_time_rule(page):
     html = """
     <html>
@@ -105,6 +114,7 @@ def test_enough_time_rule(page):
     assert len(violations) == 1
     assert "pause, stop, or resume control" in violations[0]["message"]
 
+
 def test_enough_time_rule_happy_path(page):
     html = """
     <html>
@@ -120,6 +130,27 @@ def test_enough_time_rule_happy_path(page):
     rule = EnoughTimeRule()
 
     assert rule.evaluate(page) == []
+
+
+def test_enough_time_rule_recognizes_spanish_pause_control(page):
+    page.set_content(
+        '<html lang="es"><div class="carousel" data-auto-rotate="true">'
+        '<button type="button">Pausar rotación</button></div></html>'
+    )
+
+    assert EnoughTimeRule().evaluate(page) == []
+
+
+def test_enough_time_rule_routes_unknown_languages_to_review(page):
+    page.set_content(
+        '<html lang="fr"><div class="carousel" data-auto-rotate="true"></div></html>'
+    )
+
+    findings = EnoughTimeRule().evaluate(page)
+
+    assert len(findings) == 1
+    assert findings[0]["finding_type"] == "needs_review"
+
 
 def test_link_purpose_rule(page):
     html = """
@@ -137,6 +168,7 @@ def test_link_purpose_rule(page):
     assert len(violations) == 2
     assert "generic" in violations[0]["message"]
 
+
 def test_link_purpose_rule_happy_path(page):
     html = """
     <html>
@@ -149,6 +181,27 @@ def test_link_purpose_rule_happy_path(page):
     rule = LinkPurposeRule()
 
     assert rule.evaluate(page) == []
+
+
+def test_link_purpose_rule_recognizes_spanish_generic_text(page):
+    page.set_content(
+        '<html lang="es"><a href="/one">Leer más</a><a href="/two">Leer más</a></html>'
+    )
+
+    findings = LinkPurposeRule().evaluate(page)
+
+    assert len(findings) == 2
+    assert all(finding.get("finding_type") != "needs_review" for finding in findings)
+
+
+def test_link_purpose_rule_routes_unknown_languages_to_review(page):
+    page.set_content('<html lang="fr"><a href="/one">En savoir plus</a></html>')
+
+    findings = LinkPurposeRule().evaluate(page)
+
+    assert len(findings) == 1
+    assert findings[0]["finding_type"] == "needs_review"
+
 
 def test_focus_not_obscured_rule(page):
     html = """
@@ -177,6 +230,7 @@ def test_focus_not_obscured_rule(page):
     assert len(violations) == 1
     assert "obscured" in violations[0]["message"]
 
+
 def test_focus_not_obscured_rule_restores_page_state_after_focusing(page):
     html = """
     <html>
@@ -203,16 +257,15 @@ def test_focus_not_obscured_rule_restores_page_state_after_focusing(page):
     page.set_viewport_size({"width": 1280, "height": 800})
     page.set_content(html)
     FocusNotObscuredRule().evaluate(page)
-    state = page.evaluate(
-        """() => ({
+    state = page.evaluate("""() => ({
             focusEvents: window.focusEvents,
             scrollEvents: window.scrollEvents,
             activeTag: document.activeElement ? document.activeElement.tagName : null,
-        })"""
-    )
+        })""")
 
     assert state["focusEvents"] > 0
     assert state["activeTag"] == "BODY"
+
 
 def test_focus_pointer_and_dragging_rules_happy_path(page):
     html = """
@@ -250,6 +303,7 @@ def test_focus_pointer_and_dragging_rules_happy_path(page):
     assert PointerCancellationRule().evaluate(page) == []
     assert DraggingMovementsRule().evaluate(page) == []
 
+
 def test_pointer_and_dragging_rules(page):
     html = """
     <html>
@@ -275,9 +329,7 @@ def test_pointer_and_dragging_rules(page):
 
 
 def test_pointer_cancellation_rule_reviews_custom_pointer_controls(page):
-    page.set_content(
-        '<div role="button" style="cursor: pointer">Save</div>'
-    )
+    page.set_content('<div role="button" style="cursor: pointer">Save</div>')
 
     findings = PointerCancellationRule().evaluate(page)
 
@@ -285,12 +337,16 @@ def test_pointer_cancellation_rule_reviews_custom_pointer_controls(page):
     assert findings[0]["finding_type"] == "needs_review"
     assert "custom pointer control" in findings[0]["message"]
 
+
 def test_pointer_cancellation_rule_limits_findings(page):
-    html = "<html><body>{}</body></html>".format('<div onpointerdown="start()"></div>' * 12)
+    html = "<html><body>{}</body></html>".format(
+        '<div onpointerdown="start()"></div>' * 12
+    )
     page.set_content(html)
     findings = PointerCancellationRule().evaluate(page)
 
-    assert len(findings) == 10
+    assert len(findings) == 12
+
 
 def test_target_size_rule(page):
     html = """
@@ -310,9 +366,10 @@ def test_target_size_rule(page):
     page.set_content(html)
     rule = TargetSizeRule()
     violations = rule.evaluate(page)
-    
+
     assert len(violations) == 1
     assert "less than 24x24" in violations[0]["message"]
+
 
 def test_operable_rules_happy_path(page):
     html = """
@@ -337,7 +394,7 @@ def test_operable_rules_happy_path(page):
     rule1 = KeyboardAccessibilityRule()
     rule2 = NavigableRule()
     rule3 = TargetSizeRule()
-    
+
     assert len(rule1.evaluate(page)) == 0
     assert len(rule2.evaluate(page)) == 0
     assert len(rule3.evaluate(page)) == 0

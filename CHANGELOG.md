@@ -5,6 +5,18 @@ This file records completed work. The active future plan lives in
 
 ## Unreleased
 
+### Tranche 3: complete finding evidence and language-safe heuristics
+
+#### Changed
+
+- Removed legacy per-rule result caps. `--max-findings-per-rule` is now the single truncation boundary,
+  allowing reports and CI output to disclose the accurate pre-cap total.
+- Moved definitive phrase-based heuristics into shared English, German, and Spanish language data.
+  Unsupported document languages now receive review-only findings where a hard result would depend on
+  language interpretation.
+- Extended localized detection to automatic-content controls, link purpose, pointer and drag alternatives,
+  error guidance, required-field indicators, accessible authentication, and input-purpose signals.
+
 ### Tranche 2: interaction evidence and finding caps
 
 #### Added

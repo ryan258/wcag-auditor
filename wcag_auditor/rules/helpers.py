@@ -5,11 +5,254 @@ from typing import Any, Dict, List, Optional
 
 from playwright.sync_api import Locator, Page
 
-
 FOCUSABLE_SELECTOR = (
     "a[href], button, input:not([type='hidden']), select, textarea, summary, "
     "iframe, [tabindex]:not([tabindex='-1'])"
 )
+
+
+LANGUAGE_HEURISTICS = {
+    "en": {
+        "pause_controls": ("pause", "stop", "resume", "play"),
+        "generic_link_text": (
+            "click here",
+            "here",
+            "read more",
+            "more",
+            "learn more",
+            "details",
+            "view",
+            "link",
+        ),
+        "gesture_alternatives": (
+            "next",
+            "previous",
+            "zoom in",
+            "zoom out",
+            "open",
+            "close",
+            "expand",
+            "collapse",
+        ),
+        "drag_alternatives": (
+            "move up",
+            "move down",
+            "reorder",
+            "add",
+            "remove",
+            "previous",
+            "next",
+        ),
+        "required_indicators": ("required", "mandatory", "*"),
+        "authentication_alternatives": (
+            "magic link",
+            "email me a link",
+            "passkey",
+            "webauthn",
+            "security key",
+            "password manager",
+            "use another method",
+        ),
+        "authentication_challenges": (
+            "captcha",
+            "i am not a robot",
+            "what is",
+            "security question",
+            "memorize",
+            "solve",
+        ),
+        "error_suggestions": (
+            "enter",
+            "select",
+            "choose",
+            "must",
+            "should",
+            "use",
+            "include",
+            "format",
+            "example",
+            "at least",
+            "match",
+        ),
+        "input_purpose_tokens": (
+            "address",
+            "phone",
+            "email",
+            "name",
+            "postal",
+            "city",
+            "country",
+        ),
+    },
+    "de": {
+        "pause_controls": (
+            "pausieren",
+            "stopp",
+            "fortsetzen",
+            "wiedergabe",
+            "abspielen",
+        ),
+        "generic_link_text": (
+            "hier klicken",
+            "hier",
+            "mehr erfahren",
+            "mehr",
+            "weiterlesen",
+            "details",
+            "anzeigen",
+            "link",
+        ),
+        "gesture_alternatives": (
+            "weiter",
+            "zurück",
+            "vergrößern",
+            "verkleinern",
+            "öffnen",
+            "schließen",
+            "erweitern",
+            "einklappen",
+        ),
+        "drag_alternatives": (
+            "nach oben",
+            "nach unten",
+            "verschieben",
+            "neu anordnen",
+            "hinzufügen",
+            "entfernen",
+            "zurück",
+            "weiter",
+        ),
+        "required_indicators": ("erforderlich", "pflicht", "pflichtfeld", "*"),
+        "authentication_alternatives": (
+            "magischer link",
+            "passkey",
+            "webauthn",
+            "sicherheitsschlüssel",
+            "passwortmanager",
+            "andere methode",
+        ),
+        "authentication_challenges": (
+            "captcha",
+            "ich bin kein roboter",
+            "sicherheitsfrage",
+            "auswendig",
+            "lösen",
+            "loese",
+        ),
+        "error_suggestions": (
+            "eingeben",
+            "auswählen",
+            "wählen",
+            "muss",
+            "sollte",
+            "verwenden",
+            "format",
+            "beispiel",
+            "mindestens",
+            "übereinstimmen",
+        ),
+        "input_purpose_tokens": (
+            "adresse",
+            "telefon",
+            "email",
+            "name",
+            "postleitzahl",
+            "stadt",
+            "land",
+        ),
+    },
+    "es": {
+        "pause_controls": ("pausar", "detener", "reanudar", "reproducir"),
+        "generic_link_text": (
+            "haga clic aquí",
+            "haz clic aquí",
+            "aquí",
+            "leer más",
+            "más",
+            "más información",
+            "ver más",
+            "detalles",
+            "ver",
+        ),
+        "gesture_alternatives": (
+            "siguiente",
+            "anterior",
+            "acercar",
+            "alejar",
+            "abrir",
+            "cerrar",
+            "expandir",
+            "contraer",
+        ),
+        "drag_alternatives": (
+            "mover arriba",
+            "mover abajo",
+            "reordenar",
+            "añadir",
+            "agregar",
+            "eliminar",
+            "anterior",
+            "siguiente",
+        ),
+        "required_indicators": ("requerido", "obligatorio", "*"),
+        "authentication_alternatives": (
+            "enlace mágico",
+            "enlace magico",
+            "enlace de acceso",
+            "passkey",
+            "webauthn",
+            "clave de seguridad",
+            "gestor de contraseñas",
+            "otro método",
+            "otro metodo",
+        ),
+        "authentication_challenges": (
+            "captcha",
+            "no soy un robot",
+            "pregunta de seguridad",
+            "memoriza",
+            "resuelve",
+        ),
+        "error_suggestions": (
+            "introduzca",
+            "ingrese",
+            "seleccione",
+            "elija",
+            "debe",
+            "debería",
+            "use",
+            "incluya",
+            "formato",
+            "ejemplo",
+            "al menos",
+            "coincidir",
+        ),
+        "input_purpose_tokens": (
+            "dirección",
+            "direccion",
+            "teléfono",
+            "telefono",
+            "correo",
+            "email",
+            "nombre",
+            "postal",
+            "ciudad",
+            "país",
+            "pais",
+        ),
+    },
+}
+
+
+def language_heuristic(
+    page: Page, category: str
+) -> tuple[str, Optional[tuple[str, ...]]]:
+    """Return configured phrase data for the page language and heuristic category."""
+    language = page.evaluate(
+        "() => (document.documentElement.getAttribute('lang') || 'en').trim().toLowerCase().split('-')[0]"
+    )
+    language = language or "en"
+    return language, LANGUAGE_HEURISTICS.get(language, {}).get(category)
 
 
 def truncate_html(html: str, limit: int = 140) -> str:
@@ -80,15 +323,15 @@ def parse_aria_snapshot(snapshot: str) -> tuple[Optional[str], Optional[str]]:
     """Parse role and accessible name from Playwright locator.aria_snapshot()."""
     if not snapshot:
         return None, None
-    first_line = snapshot.split('\n')[0].strip()
+    first_line = snapshot.split("\n")[0].strip()
     match = re.match(r'^-\s+([a-zA-Z0-9_-]+)\s+"([^"]*)"(?::|\s|$)', first_line)
     if match:
         return match.group(1), match.group(2)
-    match = re.match(r'^-\s+([a-zA-Z0-9_-]+)(?::\s+(.*))?$', first_line)
+    match = re.match(r"^-\s+([a-zA-Z0-9_-]+)(?::\s+(.*))?$", first_line)
     if match:
         role = match.group(1)
         name = match.group(2) if match.group(2) else None
-        if role == 'text' and name:
+        if role == "text" and name:
             return None, name
         return role, None
     return None, None
@@ -103,13 +346,12 @@ def describe_element(locator: Locator, page: Page) -> Dict[str, Any]:
             "accessible_name": None,
             "role": None,
             "bounding_box": None,
-            "frame_context": None
+            "frame_context": None,
         }
 
     try:
         # Get element properties via JS evaluation
-        info = locator.evaluate(
-            """el => {
+        info = locator.evaluate("""el => {
                 const getStableSelector = (element) => {
                     const testIdAttrs = ['data-testid', 'data-test-id', 'data-test', 'data-qa'];
 
@@ -225,13 +467,12 @@ def describe_element(locator: Locator, page: Page) -> Dict[str, Any]:
                     stableSelector: getStableSelector(el),
                     frameContext: frameContext
                 };
-            }"""
-        )
+            }""")
     except Exception:
         info = {
             "outerHTML": "Unknown",
             "stableSelector": "Unknown",
-            "frameContext": None
+            "frameContext": None,
         }
 
     # Bounding Box
@@ -243,7 +484,7 @@ def describe_element(locator: Locator, page: Page) -> Dict[str, Any]:
                 "x": box["x"],
                 "y": box["y"],
                 "width": box["width"],
-                "height": box["height"]
+                "height": box["height"],
             }
     except Exception:
         pass
@@ -259,7 +500,16 @@ def describe_element(locator: Locator, page: Page) -> Dict[str, Any]:
 
     # Determine final selector (prefer semantic role/name hint if unique)
     selector = info.get("stableSelector", "Unknown")
-    if role and name and selector and not selector.startswith("#") and not any(k in selector for k in ["data-testid", "data-test-id", "data-test", "data-qa"]):
+    if (
+        role
+        and name
+        and selector
+        and not selector.startswith("#")
+        and not any(
+            k in selector
+            for k in ["data-testid", "data-test-id", "data-test", "data-qa"]
+        )
+    ):
         escaped_name = name.replace('"', '\\"')
         semantic_sel = f'role={role}[name="{escaped_name}"]'
         try:
@@ -274,7 +524,7 @@ def describe_element(locator: Locator, page: Page) -> Dict[str, Any]:
         "accessible_name": name,
         "role": role,
         "bounding_box": bounding_box,
-        "frame_context": info.get("frameContext")
+        "frame_context": info.get("frameContext"),
     }
 
 
@@ -307,15 +557,14 @@ def collect_focus_indicator_findings(
     *,
     message: str,
     suggestion: str,
-    limit: int = 5,
+    limit: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Heuristically detect interactive elements that lack visible focus styles."""
     findings: List[Dict[str, Any]] = []
     locators = page.locator(FOCUSABLE_SELECTOR).all()
 
     for loc in locators:
-        is_visible = loc.evaluate(
-            """el => {
+        is_visible = loc.evaluate("""el => {
                 const rect = el.getBoundingClientRect();
                 const style = window.getComputedStyle(el);
                 return (
@@ -324,14 +573,12 @@ def collect_focus_indicator_findings(
                     style.display !== 'none' &&
                     style.visibility !== 'hidden'
                 );
-            }"""
-        )
+            }""")
         if not is_visible:
             continue
 
         page.evaluate("document.activeElement?.blur()")
-        before_style = loc.evaluate(
-            """el => {
+        before_style = loc.evaluate("""el => {
                 const style = window.getComputedStyle(el);
                 return {
                     outlineStyle: style.outlineStyle,
@@ -347,10 +594,8 @@ def collect_focus_indicator_findings(
                     borderBottomWidth: style.borderBottomWidth,
                     borderLeftWidth: style.borderLeftWidth
                 };
-            }"""
-        )
-        focused_style = loc.evaluate(
-            """el => {
+            }""")
+        focused_style = loc.evaluate("""el => {
                 el.focus({preventScroll: true, focusVisible: true});
                 const style = window.getComputedStyle(el);
                 return {
@@ -368,8 +613,7 @@ def collect_focus_indicator_findings(
                     borderLeftWidth: style.borderLeftWidth,
                     focused: document.activeElement === el
                 };
-            }"""
-        )
+            }""")
 
         has_outline = (
             focused_style["outlineStyle"] != "none"
@@ -392,9 +636,8 @@ def collect_focus_indicator_findings(
                 "borderLeftWidth",
             ]
         )
-        has_visible_indicator = (
-            focused_style["focused"]
-            and (has_outline or has_box_shadow or has_background_change or has_border_change)
+        has_visible_indicator = focused_style["focused"] and (
+            has_outline or has_box_shadow or has_background_change or has_border_change
         )
 
         page.evaluate("document.activeElement?.blur()")
@@ -413,7 +656,7 @@ def collect_focus_indicator_findings(
                     ),
                 )
             )
-            if len(findings) >= limit:
+            if limit is not None and len(findings) >= limit:
                 break
 
     return findings
