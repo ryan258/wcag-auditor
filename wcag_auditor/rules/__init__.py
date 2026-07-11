@@ -12,6 +12,7 @@ class RuleMetadata:
     level: str  # A, AA, AAA
     impact: str  # minor, moderate, serious, critical
     applicability: str  # e.g. "image", "form", "page"
+    coverage_type: str = "automated"
 
 class AbstractRule(ABC):
     """Base interface for all WCAG evaluation rules."""

@@ -13,6 +13,8 @@ from wcag_auditor import DEFAULT_USER_AGENT
 from wcag_auditor.remediation import get_default_remediation_code
 from wcag_auditor.rules import AbstractRule
 from wcag_auditor.rules.core_rules import get_core_rules
+from wcag_auditor.rules.helpers import describe_element, selector_for_html_snippet
+
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -44,6 +46,12 @@ class Auditor:
         timeout: int = 30,
         user_agent: str = DEFAULT_USER_AGENT,
         sample_strategy: str = "representative",
+        storage_state: Optional[str] = None,
+        includes: Optional[List[str]] = None,
+        excludes: Optional[List[str]] = None,
+        delay: int = 0,
+        respect_robots: bool = True,
+        max_findings_per_rule: int = 20,
     ):
         self.base_url = base_url
         self.max_depth = max_depth
@@ -51,6 +59,13 @@ class Auditor:
         self.timeout = timeout
         self.user_agent = user_agent
         self.sample_strategy = sample_strategy
+        self.storage_state = storage_state
+        self.includes = includes or []
+        self.excludes = excludes or []
+        self.delay = delay
+        self.respect_robots = respect_robots
+        self.max_findings_per_rule = max_findings_per_rule
+
         self.visited_urls: Set[str] = set()
         self.results: List[AuditResult] = []
         self.sampled_templates: Set[str] = set()
@@ -59,6 +74,18 @@ class Auditor:
         self.base_domain = parsed.netloc
         self.scheme = parsed.scheme
         self.wcag_rules: List[AbstractRule] = get_core_rules()
+
+        # Compile include/exclude regexes
+        self.include_regexes = [re.compile(p) for p in self.includes]
+        self.exclude_regexes = [re.compile(p) for p in self.excludes]
+
+        # Initialize robot parser
+        from urllib.robotparser import RobotFileParser
+        self.robots_parser: Optional[RobotFileParser] = None
+        self.robots_loaded = False
+        if respect_robots:
+            self.robots_parser = RobotFileParser()
+            self.robots_url = f"{self.scheme}://{self.base_domain}/robots.txt"
 
     def _normalize_template(self, url: str) -> str:
         """Normalize URL paths into coarse page templates for representative sampling."""
@@ -364,12 +391,42 @@ class Auditor:
                 if rule_findings:
                     for finding in rule_findings:
                         finding_type = finding.get("finding_type", "violation")
+
+                        # Extract locator/selector if present and resolve details
+                        locator = finding.pop("locator", None)
+                        selector = finding.get("selector", None)
+
+                        if locator is None and not selector:
+                            selector = selector_for_html_snippet(page, finding.get("element"))
+                            if selector:
+                                finding["selector"] = selector
+
+                        element_details = {}
+                        if locator is not None:
+                            element_details = describe_element(locator, page)
+                        elif selector is not None:
+                            try:
+                                loc = page.locator(selector).first
+                                if loc.count() > 0:
+                                    element_details = describe_element(loc, page)
+                            except Exception:
+                                pass
+
+                        # Merge element details, prioritizing existing fields in finding
+                        for k, v in element_details.items():
+                            if k not in finding or (k == "element" and finding[k] == "Unknown"):
+                                finding[k] = v
+
+                        title = page.title()
                         enriched = {
                             "rule": meta.id,
                             "wcag": meta.wcag_criterion,
                             "level": meta.level,
                             "impact": meta.impact,
                             "description": meta.description,
+                            "page_url": url,
+                            "page_title": title if title else "No title",
+                            "page_template": page_insights.get("template", "/"),
                             **finding,
                         }
                         if "remediation_code" not in enriched:
@@ -411,12 +468,41 @@ class Auditor:
             page_insights=page_insights,
         )
 
+    def _should_visit(self, url: str) -> bool:
+        """Check if a URL should be visited based on include/exclude patterns and robots.txt."""
+        if self.include_regexes:
+            if not any(rx.search(url) for rx in self.include_regexes):
+                return False
+        if self.exclude_regexes:
+            if any(rx.search(url) for rx in self.exclude_regexes):
+                return False
+        if self.respect_robots and self.robots_parser:
+            try:
+                if not self.robots_loaded:
+                    return True
+                if not self.robots_parser.can_fetch(self.user_agent, url):
+                    logger.info("Skipping URL %s due to robots.txt restriction", url)
+                    return False
+            except Exception:
+                pass
+        return True
+
     def audit(self) -> Dict[str, Any]:
         """Perform a full website audit using Playwright."""
         logger.info("Starting audit of %s", self.base_url)
 
+        # Load robots.txt if requested
+        if self.respect_robots and self.robots_parser:
+            try:
+                self.robots_parser.set_url(self.robots_url)
+                self.robots_parser.read()
+                self.robots_loaded = True
+            except Exception as exc:
+                self.robots_loaded = False
+                logger.warning("Could not read robots.txt from %s: %s", self.robots_url, exc)
+
         self.visited_urls = set()
-        self.results = []
+        self.results: List[AuditResult] = []
         self.sampled_templates = set()
 
         urls_to_visit = [(self.base_url, 0)]
@@ -434,7 +520,10 @@ class Auditor:
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
-                context = browser.new_context(user_agent=self.user_agent)
+                context_args = {"user_agent": self.user_agent}
+                if self.storage_state:
+                    context_args["storage_state"] = self.storage_state
+                context = browser.new_context(**context_args)
                 page = context.new_page()
 
                 try:
@@ -444,6 +533,11 @@ class Auditor:
 
                         if current_url in self.visited_urls:
                             continue
+
+                        # Polite delay between page requests
+                        if pages_audited > 0 and self.delay > 0:
+                            logger.info("Sleeping for %s ms before fetching %s", self.delay, current_url)
+                            time.sleep(self.delay / 1000.0)
 
                         self.visited_urls.add(current_url)
                         logger.info("Attempting page %s: %s", pages_audited + 1, current_url)
@@ -490,6 +584,7 @@ class Auditor:
                                     link
                                     for link in new_links
                                     if link not in self.visited_urls and link not in queued_urls
+                                    and self._should_visit(link)
                                 ]
                                 if self.sample_strategy == "representative":
                                     filtered_links.sort(

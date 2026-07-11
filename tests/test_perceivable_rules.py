@@ -4,6 +4,7 @@ from wcag_auditor.rules.perceivable_rules import (
     AdaptableReadingSeqRule, AudioDescriptionRule, ContrastMinimumRule,
     FocusAppearanceRule, InlineLanguageChangeRule
 )
+from wcag_auditor.rules.helpers import selector_for_html_snippet
 
 def test_complex_alt_text_rule_svg(page):
     html = """
@@ -202,6 +203,36 @@ def test_contrast_minimum_rule_happy_path(page):
     rule = ContrastMinimumRule()
 
     assert rule.evaluate(page) == []
+
+
+def test_contrast_rule_does_not_treat_a_stacking_context_as_an_overlap(page):
+    page.set_content(
+        """
+        <style>
+            .stacking-context { position: relative; z-index: 1; background: rgb(150, 150, 150); }
+            .bad { color: rgb(120, 120, 120); }
+        </style>
+        <div class="stacking-context"><p class="bad">Low contrast text</p></div>
+        """
+    )
+
+    findings = ContrastMinimumRule().evaluate(page)
+
+    assert len(findings) == 1
+    assert findings[0].get("finding_type") != "needs_review"
+    assert "contrast ratio" in findings[0]["message"]
+
+
+def test_selector_for_html_snippet_returns_only_unambiguous_matches(page):
+    page.set_content(
+        '<button class="unique">Save</button>'
+        '<span>Duplicate</span><span>Duplicate</span>'
+    )
+
+    selector = selector_for_html_snippet(page, '<button class="unique">Save</button>')
+    assert selector is not None
+    assert page.locator(selector).count() == 1
+    assert selector_for_html_snippet(page, "<span>Duplicate</span>") is None
 
 def test_inline_language_change_rule(page):
     html = """

@@ -7,6 +7,68 @@ from typing import Any, Dict, List
 
 from wcag_auditor import __version__
 
+WCAG_22_AA_CRITERIA = {
+    # 1. Perceivable
+    "1.1.1": {"name": "Non-text Content", "level": "A"},
+    "1.2.1": {"name": "Audio-only and Video-only (Prerecorded)", "level": "A"},
+    "1.2.2": {"name": "Captions (Prerecorded)", "level": "A"},
+    "1.2.3": {"name": "Audio Description or Media Alternative (Prerecorded)", "level": "A"},
+    "1.2.4": {"name": "Captions (Live)", "level": "AA"},
+    "1.2.5": {"name": "Audio Description (Prerecorded)", "level": "AA"},
+    "1.3.1": {"name": "Info and Relationships", "level": "A"},
+    "1.3.2": {"name": "Meaningful Sequence", "level": "A"},
+    "1.3.3": {"name": "Sensory Characteristics", "level": "A"},
+    "1.3.4": {"name": "Orientation", "level": "AA"},
+    "1.3.5": {"name": "Identify Input Purpose", "level": "AA"},
+    "1.4.1": {"name": "Use of Color", "level": "A"},
+    "1.4.2": {"name": "Audio Control", "level": "A"},
+    "1.4.3": {"name": "Contrast (Minimum)", "level": "AA"},
+    "1.4.4": {"name": "Resize Text", "level": "AA"},
+    "1.4.5": {"name": "Images of Text", "level": "AA"},
+    "1.4.10": {"name": "Reflow", "level": "AA"},
+    "1.4.11": {"name": "Non-text Contrast", "level": "AA"},
+    "1.4.12": {"name": "Text Spacing", "level": "AA"},
+    "1.4.13": {"name": "Content on Hover or Focus", "level": "AA"},
+    # 2. Operable
+    "2.1.1": {"name": "Keyboard", "level": "A"},
+    "2.1.2": {"name": "No Keyboard Trap", "level": "A"},
+    "2.1.4": {"name": "Character Key Shortcuts", "level": "A"},
+    "2.2.1": {"name": "Timing Adjustable", "level": "A"},
+    "2.2.2": {"name": "Pause, Stop, Hide", "level": "A"},
+    "2.3.1": {"name": "Three Flashes or Below Threshold", "level": "A"},
+    "2.4.1": {"name": "Bypass Blocks", "level": "A"},
+    "2.4.2": {"name": "Page Titled", "level": "A"},
+    "2.4.3": {"name": "Focus Order", "level": "A"},
+    "2.4.4": {"name": "Link Purpose (In Context)", "level": "A"},
+    "2.4.5": {"name": "Multiple Ways", "level": "AA"},
+    "2.4.6": {"name": "Headings and Labels", "level": "AA"},
+    "2.4.7": {"name": "Focus Visible", "level": "AA"},
+    "2.4.11": {"name": "Focus Not Obscured (Minimum)", "level": "AA"},
+    "2.5.1": {"name": "Pointer Gestures", "level": "A"},
+    "2.5.2": {"name": "Pointer Cancellation", "level": "A"},
+    "2.5.3": {"name": "Label in Name", "level": "A"},
+    "2.5.4": {"name": "Motion Actuation", "level": "A"},
+    "2.5.7": {"name": "Dragging Movements", "level": "AA"},
+    "2.5.8": {"name": "Target Size (Minimum)", "level": "AA"},
+    # 3. Understandable
+    "3.1.1": {"name": "Language of Page", "level": "A"},
+    "3.1.2": {"name": "Language of Parts", "level": "AA"},
+    "3.2.1": {"name": "On Focus", "level": "A"},
+    "3.2.2": {"name": "On Input", "level": "A"},
+    "3.2.3": {"name": "Consistent Navigation", "level": "AA"},
+    "3.2.4": {"name": "Consistent Identification", "level": "AA"},
+    "3.2.6": {"name": "Consistent Help", "level": "A"},
+    "3.3.1": {"name": "Error Identification", "level": "A"},
+    "3.3.2": {"name": "Labels or Instructions", "level": "A"},
+    "3.3.3": {"name": "Error Suggestion", "level": "AA"},
+    "3.3.4": {"name": "Error Prevention (Legal, Financial, Data)", "level": "AA"},
+    "3.3.7": {"name": "Redundant Entry", "level": "A"},
+    "3.3.8": {"name": "Accessible Authentication (Minimum)", "level": "AA"},
+    # 4. Robust
+    "4.1.2": {"name": "Name, Role, Value", "level": "A"},
+    "4.1.3": {"name": "Status Messages", "level": "AA"}
+}
+
 
 def _esc(value: Any) -> str:
     """HTML-escape a value for safe interpolation into markup."""
@@ -29,6 +91,8 @@ class Reporter:
             return self._generate_markdown()
         if format == "vpat":
             return self._generate_vpat()
+        if format == "sarif":
+            return self._generate_sarif()
         return self._generate_text()
 
     def _summary(self) -> Dict[str, Any]:
@@ -68,8 +132,14 @@ class Reporter:
         blocks = [f"## {heading} ({total} across {len(groups)} rules)\n"]
         for group in groups.values():
             instances = group["instances"]
+
+            # Check if any instance was truncated, and display a note
+            is_truncated = any(inst.get("truncated") for inst in instances)
+            total_matched = max(inst.get("total", len(instances)) for inst in instances) if is_truncated else len(instances)
+            truncation_suffix = f" (showing {len(instances)} of {total_matched})" if is_truncated else ""
+
             block = [
-                f"### {group['rule']} ({len(instances)})",
+                f"### {group['rule']} ({len(instances)}){truncation_suffix}",
                 f"- **WCAG:** {group['wcag']} (Level {group['level']})",
                 f"- **Impact:** {group['impact']}",
                 f"- **Description:** {group['description']}",
@@ -82,12 +152,35 @@ class Reporter:
                 block.append("```")
 
             block.append("")
-            block.append("| # | Element | Message |")
-            block.append("|---|---------|---------|")
+            block.append("| # | Page | Element | Message / Identity |")
+            block.append("|---|------|---------|--------------------|")
             for idx, instance in enumerate(instances, 1):
+                page_url = instance.get("page_url")
+                page_title = instance.get("page_title", "Page")
+                page_cell = f"[{page_title}]({page_url})" if page_url else "Unknown"
+
                 element = str(instance.get("element", "Unknown")).replace("|", "\\|").replace("\n", " ")
                 message = str(instance.get("message", "")).replace("|", "\\|").replace("\n", " ")
-                block.append(f"| {idx} | `{element}` | {message} |")
+
+                details = []
+                if instance.get("selector"):
+                    details.append(f"**Selector:** `{instance['selector']}`")
+                if instance.get("accessible_name"):
+                    details.append(f"**Name:** \"{instance['accessible_name']}\"")
+                if instance.get("role"):
+                    details.append(f"**Role:** `{instance['role']}`")
+                if instance.get("bounding_box"):
+                    bbox = instance["bounding_box"]
+                    details.append(f"**Coords:** x={bbox.get('x')}, y={bbox.get('y')}, w={bbox.get('width')}, h={bbox.get('height')}")
+                if instance.get("frame_context"):
+                    fc = instance["frame_context"]
+                    details.append(f"**Frame:** `{fc.get('src') or fc.get('name')}`")
+
+                if details:
+                    escaped_details = [d.replace("|", "\\|") for d in details]
+                    message += " <br>" + " \\| ".join(escaped_details)
+
+                block.append(f"| {idx} | {page_cell} | `{element}` | {message} |")
 
             blocks.append("\n".join(block))
             blocks.append("")
@@ -383,6 +476,7 @@ class Reporter:
             "manual_review_types": self.results.get("manual_review_types", {}),
             "violations": self.results.get("violations", []),
             "manual_reviews": self.results.get("manual_reviews", []),
+            "known_issues": self.results.get("known_issues", []),
             "warnings": self.results.get("warnings", []),
             "passed": self.results.get("passed", []),
             "pages": self.results.get("pages", []),
@@ -431,7 +525,7 @@ class Reporter:
     <h1>WCAG Audit Report</h1>
     <div class="summary">
         <h2>Summary</h2>
-        <p><strong>URL:</strong> {_esc(summary.get('base_url', 'Unknown'))}</p>
+        <p><strong>URL:</strong> <a href="{_esc(summary.get('base_url', 'Unknown'))}">{_esc(summary.get('base_url', 'Unknown'))}</a></p>
         <p><strong>Pages Audited:</strong> {summary.get('pages_audited', 0)}</p>
         <p><strong>Total Violations:</strong> {summary.get('total_violations', 0)}</p>
         <p><strong>Needs Manual Review:</strong> {summary.get('total_manual_reviews', 0)}</p>
@@ -451,12 +545,36 @@ class Reporter:
 
         for finding in violations:
             impact = _esc(finding.get("impact", "unknown"))
+            page_url = finding.get("page_url", "")
+            page_title = finding.get("page_title", "Page")
+            page_html = f'<p><strong>Page:</strong> <a href="{_esc(page_url)}">{_esc(page_title)}</a></p>' if page_url else ''
+
+            trunc_badge = ""
+            if finding.get("truncated"):
+                trunc_badge = f' <span class="impact" style="background: #7986cb; color: white;">TRUNCATED (showing some of {finding.get("total")})</span>'
+
             html_output += f"""
     <div class="violation">
-        <div class="rule">{_esc(finding.get('rule', 'Unknown'))} <span class="impact impact-{impact}">{impact.upper()}</span></div>
+        <div class="rule">{_esc(finding.get('rule', 'Unknown'))} <span class="impact impact-{impact}">{impact.upper()}</span>{trunc_badge}</div>
+        {page_html}
         <p><strong>Description:</strong> {_esc(finding.get('description', 'No description'))}</p>
         <p><strong>WCAG:</strong> {_esc(finding.get('wcag', 'Unknown'))} (Level {_esc(finding.get('level', 'Unknown'))})</p>
         <p><strong>Element:</strong> <code>{_esc(finding.get('element', 'Unknown'))}</code></p>
+"""
+            if finding.get("selector"):
+                html_output += f"        <p><strong>Selector:</strong> <code>{_esc(finding['selector'])}</code></p>\n"
+            if finding.get("accessible_name"):
+                html_output += f"        <p><strong>Accessible Name:</strong> <code>\"{_esc(finding['accessible_name'])}\"</code></p>\n"
+            if finding.get("role"):
+                html_output += f"        <p><strong>Role:</strong> <code>{_esc(finding['role'])}</code></p>\n"
+            if finding.get("bounding_box"):
+                bbox = finding["bounding_box"]
+                html_output += f"        <p><strong>Bounding Box:</strong> <code>x={bbox.get('x')}, y={bbox.get('y')}, w={bbox.get('width')}, h={bbox.get('height')}</code></p>\n"
+            if finding.get("frame_context"):
+                fc = finding["frame_context"]
+                html_output += f"        <p><strong>Frame Context:</strong> <code>{_esc(fc)}</code></p>\n"
+
+            html_output += f"""
         <p><strong>Message:</strong> {_esc(finding.get('message', 'No message'))}</p>
         <p><strong>Suggestion:</strong> {_esc(finding.get('suggestion', 'No suggestion'))}</p>
 """
@@ -469,12 +587,36 @@ class Reporter:
     <h2>Needs Manual Review ({len(manual_reviews)})</h2>
 """
         for finding in manual_reviews:
+            page_url = finding.get("page_url", "")
+            page_title = finding.get("page_title", "Page")
+            page_html = f'<p><strong>Page:</strong> <a href="{_esc(page_url)}">{_esc(page_title)}</a></p>' if page_url else ''
+
+            trunc_badge = ""
+            if finding.get("truncated"):
+                trunc_badge = f' <span class="impact" style="background: #7986cb; color: white;">TRUNCATED (showing some of {finding.get("total")})</span>'
+
             html_output += f"""
     <div class="manual-review">
-        <div class="rule">{_esc(finding.get('rule', 'Unknown'))}</div>
+        <div class="rule">{_esc(finding.get('rule', 'Unknown'))}{trunc_badge}</div>
+        {page_html}
         <p><strong>Description:</strong> {_esc(finding.get('description', 'No description'))}</p>
         <p><strong>WCAG:</strong> {_esc(finding.get('wcag', 'Unknown'))} (Level {_esc(finding.get('level', 'Unknown'))})</p>
         <p><strong>Element:</strong> <code>{_esc(finding.get('element', 'Unknown'))}</code></p>
+"""
+            if finding.get("selector"):
+                html_output += f"        <p><strong>Selector:</strong> <code>{_esc(finding['selector'])}</code></p>\n"
+            if finding.get("accessible_name"):
+                html_output += f"        <p><strong>Accessible Name:</strong> <code>\"{_esc(finding['accessible_name'])}\"</code></p>\n"
+            if finding.get("role"):
+                html_output += f"        <p><strong>Role:</strong> <code>{_esc(finding['role'])}</code></p>\n"
+            if finding.get("bounding_box"):
+                bbox = finding["bounding_box"]
+                html_output += f"        <p><strong>Bounding Box:</strong> <code>x={bbox.get('x')}, y={bbox.get('y')}, w={bbox.get('width')}, h={bbox.get('height')}</code></p>\n"
+            if finding.get("frame_context"):
+                fc = finding["frame_context"]
+                html_output += f"        <p><strong>Frame Context:</strong> <code>{_esc(fc)}</code></p>\n"
+
+            html_output += f"""
         <p><strong>Message:</strong> {_esc(finding.get('message', 'No message'))}</p>
         <p><strong>Suggestion:</strong> {_esc(finding.get('suggestion', 'No suggestion'))}</p>
     </div>
@@ -605,10 +747,11 @@ Methodology: {wcag_em.get('methodology', 'Not provided')}
     def _generate_vpat(self) -> str:
         violations = self.results.get("violations", [])
         manual_reviews = self.results.get("manual_reviews", [])
-        criterions: Dict[str, List[Dict[str, Any]]] = {}
+        passed = self.results.get("passed", [])
+        warnings = self.results.get("warnings", [])
 
-        for finding in violations + manual_reviews:
-            criterions.setdefault(finding.get("wcag", "Unknown"), []).append(finding)
+        from wcag_auditor.rules.core_rules import get_core_rules
+        rules = get_core_rules()
 
         report = f"""# Accessibility Conformance Report (VPAT® Version 2.5)
 
@@ -628,21 +771,123 @@ This report covers the degree of conformance for the following accessibility sta
 * **Partially Supports:** Some functionality of the product does not meet the criterion.
 * **Does Not Support:** The majority of product functionality does not meet the criterion.
 * **Not Applicable:** The criterion is not relevant to the product.
+* **Not Evaluated:** The criterion has not been fully evaluated (needs manual review or requires manual assessment).
 
 ## Table 1: Success Criteria, Level A & AA
 
 | Criteria | Conformance Level | Remarks and Explanations |
 | --- | --- | --- |
 """
+        # Sort criteria by numerical parts
+        for wcag, info in sorted(WCAG_22_AA_CRITERIA.items(), key=lambda x: [int(c) for c in x[0].split('.')]):
+            # Get findings for this criterion
+            crit_violations = [f for f in violations if f.get("wcag") == wcag]
+            crit_reviews = [f for f in manual_reviews if f.get("wcag") == wcag]
 
-        for wcag, findings in sorted(criterions.items()):
-            messages = list(dict.fromkeys(finding.get("message", "") for finding in findings))
-            review_note = " Includes needs-review items." if any(
-                finding.get("finding_type") == "needs_review" for finding in findings
-            ) else ""
-            report += f"| {wcag} | Partially Supports | Issues found: {'; '.join(messages)}.{review_note} |\n"
+            # Find rules covering this
+            matching_rules = [r for r in rules if r.metadata.wcag_criterion == wcag]
+            matching_rule_ids = {rule.metadata.id for rule in matching_rules}
+            successful_rule_ids = {
+                finding.get("rule")
+                for finding in passed
+                if finding.get("rule") in matching_rule_ids
+            }
+            crashed_rule_ids = {
+                warning.get("rule")
+                for warning in warnings
+                if warning.get("rule") in matching_rule_ids
+            }
 
-        if not criterions:
-            report += "| Overall | Supports | No violations detected in automated scans |\n"
+            if crit_violations:
+                messages = list(dict.fromkeys(f.get("message", "") for f in crit_violations))
+                pages = list(dict.fromkeys(f.get("page_url", "general") for f in crit_violations))
+                pages_str = ", ".join(pages)
+                report += f"| {wcag} {info['name']} (Level {info['level']}) | Partially Supports | Issues found: {'; '.join(messages)} (on {pages_str}). |\n"
+            elif crit_reviews:
+                messages = list(dict.fromkeys(f.get("message", "") for f in crit_reviews))
+                report += f"| {wcag} {info['name']} (Level {info['level']}) | Not Evaluated | Requires manual review. Findings needing evaluation: {'; '.join(messages)}. |\n"
+            elif successful_rule_ids and not crashed_rule_ids:
+                report += f"| {wcag} {info['name']} (Level {info['level']}) | Supports | Supports (automated checks only). No violations detected. |\n"
+            elif matching_rules:
+                report += f"| {wcag} {info['name']} (Level {info['level']}) | Not Evaluated | No successful automated check was recorded. |\n"
+            else:
+                report += f"| {wcag} {info['name']} (Level {info['level']}) | Not Evaluated | Requires manual assessment (not covered by automated checks). |\n"
 
         return report
+
+    def _generate_sarif(self) -> str:
+        violations = self.results.get("violations", [])
+        manual_reviews = self.results.get("manual_reviews", [])
+
+        rules_map = {}
+        for rule in violations + manual_reviews:
+            rule_id = rule.get("rule", "Unknown")
+            if rule_id not in rules_map:
+                wcag = rule.get("wcag", "")
+                help_url = f"https://www.w3.org/WAI/WCAG22/Understanding/{wcag.replace('.', '-')}.html" if wcag else ""
+                rules_map[rule_id] = {
+                    "id": rule_id,
+                    "name": rule_id,
+                    "shortDescription": {
+                        "text": rule.get("description", "No description provided")
+                    },
+                    "helpUri": help_url
+                }
+
+        results_list = []
+        for finding in violations + manual_reviews:
+            rule_id = finding.get("rule", "Unknown")
+            is_manual = finding.get("finding_type") == "needs_review"
+            message = finding.get("message", "No message")
+            if is_manual:
+                message = f"[Needs Review] {message}"
+
+            level = "error"
+            impact = finding.get("impact", "moderate")
+            if impact in ["minor", "moderate"]:
+                level = "warning"
+            elif impact in ["serious", "critical"]:
+                level = "error"
+
+            region = {}
+            if finding.get("element"):
+                region["snippet"] = {
+                    "text": finding["element"]
+                }
+
+            result_item = {
+                "ruleId": rule_id,
+                "message": {
+                    "text": message
+                },
+                "level": level,
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": finding.get("page_url", self.results.get("base_url", ""))
+                            },
+                            "region": region
+                        }
+                    }
+                ]
+            }
+            results_list.append(result_item)
+
+        sarif_data = {
+            "$schema": "https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0-rtm.5.json",
+            "version": "2.1.0",
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {
+                            "name": "WCAG Auditor",
+                            "version": __version__,
+                            "rules": list(rules_map.values())
+                        }
+                    },
+                    "results": results_list
+                }
+            ]
+        }
+        return json.dumps(sarif_data, indent=2)

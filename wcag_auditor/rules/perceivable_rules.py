@@ -239,10 +239,11 @@ class ContrastMinimumRule(AbstractRule):
             level="AA",
             impact="serious",
             applicability="text",
+            coverage_type="partial-heuristic"
         )
 
-    def evaluate(self, page: Page) -> List[Dict[str, Any]]:
-        return page.evaluate(
+    def evaluate(self, page: Page, cap: int = 20) -> List[Dict[str, Any]]:
+        findings = page.evaluate(
             """() => {
                 const selector = [
                     'p', 'span', 'a[href]', 'button', 'label', 'li', 'td', 'th',
@@ -330,40 +331,229 @@ class ContrastMinimumRule(AbstractRule):
                     return (el.innerText || el.textContent || '').trim();
                 };
 
-                return Array.from(document.querySelectorAll(selector))
-                    .flatMap(el => {
-                        const text = textFor(el);
-                        const rect = el.getBoundingClientRect();
-                        const style = window.getComputedStyle(el);
-                        if (!text || text.length < 2) return [];
-                        if (rect.width === 0 || rect.height === 0) return [];
-                        if (style.display === 'none' || style.visibility === 'hidden') return [];
-                        if (Number.parseFloat(style.opacity || '1') === 0) return [];
+                const getStableSelector = (element) => {
+                    const testIdAttrs = ['data-testid', 'data-test-id', 'data-test', 'data-qa'];
+                    const isUnique = (sel) => {
+                        try {
+                            return document.querySelectorAll(sel).length === 1;
+                        } catch (e) {
+                            return false;
+                        }
+                    };
 
-                        const foreground = parseColor(style.color);
-                        const background = backgroundFor(el);
-                        if (!foreground || !background) return [];
+                    for (const attr of testIdAttrs) {
+                        if (element.hasAttribute(attr)) {
+                            const val = element.getAttribute(attr);
+                            if (val) {
+                                const sel = `[${attr}="${CSS.escape(val)}"]`;
+                                if (isUnique(sel)) return sel;
+                            }
+                        }
+                    }
 
-                        const resolvedForeground = blend(foreground, background);
-                        const ratio = contrastRatio(resolvedForeground, background);
-                        const fontSize = Number.parseFloat(style.fontSize || '16');
-                        const fontWeight = Number.parseInt(style.fontWeight || '400', 10) || 400;
-                        const isLargeText = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700);
-                        const minimum = isLargeText ? 3 : 4.5;
+                    if (element.id) {
+                        const sel = `#${CSS.escape(element.id)}`;
+                        if (isUnique(sel)) return sel;
+                    }
 
-                        if (ratio + 0.01 >= minimum) return [];
+                    const path = [];
+                    let current = element;
+                    while (current && current.nodeType === Node.ELEMENT_NODE) {
+                        let tag = current.tagName.toLowerCase();
+                        let hasUniqueAttr = false;
 
-                        const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
-                        return [{
-                            element: html.length > 140 ? `${html.slice(0, 140)}...` : html,
+                        for (const attr of testIdAttrs) {
+                            if (current.hasAttribute(attr)) {
+                                const val = current.getAttribute(attr);
+                                if (val) {
+                                    tag += `[${attr}="${CSS.escape(val)}"]`;
+                                    hasUniqueAttr = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!hasUniqueAttr && current.id) {
+                            tag += `#${CSS.escape(current.id)}`;
+                            hasUniqueAttr = true;
+                        }
+
+                        if (hasUniqueAttr) {
+                            path.unshift(tag);
+                            const fullSel = path.join(' > ');
+                            if (isUnique(fullSel)) {
+                                return fullSel;
+                            }
+                        } else {
+                            let sibling = current;
+                            let nth = 1;
+                            while (sibling.previousElementSibling) {
+                                sibling = sibling.previousElementSibling;
+                                if (sibling.tagName === current.tagName) {
+                                    nth++;
+                                }
+                            }
+
+                            let hasSameTagSiblings = false;
+                            let sib = current.nextElementSibling;
+                            while (sib) {
+                                if (sib.tagName === current.tagName) {
+                                    hasSameTagSiblings = true;
+                                    break;
+                                }
+                                sib = sib.nextElementSibling;
+                            }
+                            sib = current.previousElementSibling;
+                            while (sib) {
+                                if (sib.tagName === current.tagName) {
+                                    hasSameTagSiblings = true;
+                                    break;
+                                }
+                                sib = sib.previousElementSibling;
+                            }
+
+                            if (hasSameTagSiblings) {
+                                tag += `:nth-of-type(${nth})`;
+                            }
+                            path.unshift(tag);
+                        }
+                        current = current.parentElement;
+                    }
+                    return path.join(' > ');
+                };
+
+                const hasPositionedOverlap = el => {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width === 0 || rect.height === 0) return false;
+
+                    const points = [
+                        [rect.left + (rect.width / 2), rect.top + (rect.height / 2)],
+                        [rect.left + 1, rect.top + 1],
+                        [rect.right - 1, rect.bottom - 1],
+                    ];
+
+                    return points.some(([x, y]) => {
+                        if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+                        const stack = document.elementsFromPoint(x, y);
+                        const targetIndex = stack.findIndex(candidate => candidate === el || el.contains(candidate));
+                        if (targetIndex <= 0) return false;
+
+                        return stack.slice(0, targetIndex).some(candidate => {
+                            if (candidate === el || candidate.contains(el) || el.contains(candidate)) return false;
+                            const style = window.getComputedStyle(candidate);
+                            const background = parseColor(style.backgroundColor);
+                            const isPositioned = ['absolute', 'fixed', 'sticky'].includes(style.position)
+                                || style.zIndex !== 'auto';
+                            return isPositioned
+                                && style.visibility !== 'hidden'
+                                && Number.parseFloat(style.opacity || '1') > 0
+                                && (
+                                    style.backgroundImage !== 'none'
+                                    || (background && background.a > 0)
+                                );
+                        });
+                    });
+                };
+
+                const getUncertainty = el => {
+                    if (hasPositionedOverlap(el)) {
+                        return 'Text has overlapping positioned content — verify contrast manually';
+                    }
+                    let current = el;
+                    while (current) {
+                        const style = window.getComputedStyle(current);
+                        const bgImage = style.backgroundImage;
+                        if (bgImage && bgImage !== 'none' && bgImage !== '') {
+                            return 'Text over image or gradient — verify contrast manually';
+                        }
+                        const parsedBg = parseColor(style.backgroundColor);
+                        if (parsedBg && parsedBg.a > 0) {
+                            if (parsedBg.a < 1) {
+                                return 'Background color is semi-transparent — verify contrast manually';
+                            }
+                            break;
+                        }
+                        current = current.parentElement;
+                    }
+
+                    current = el;
+                    while (current) {
+                        const style = window.getComputedStyle(current);
+                        const opacity = Number.parseFloat(style.opacity || '1');
+                        if (opacity < 1) {
+                            return 'Element or ancestor has opacity < 1 — verify contrast manually';
+                        }
+                        const parsedBg = parseColor(style.backgroundColor);
+                        if (parsedBg && parsedBg.a > 0) {
+                            break;
+                        }
+                        current = current.parentElement;
+                    }
+                    return null;
+                };
+
+                const elements = Array.from(document.querySelectorAll(selector));
+                const allFindings = [];
+
+                for (const el of elements) {
+                    const text = textFor(el);
+                    const rect = el.getBoundingClientRect();
+                    const style = window.getComputedStyle(el);
+                    if (!text || text.length < 2) continue;
+                    if (rect.width === 0 || rect.height === 0) continue;
+                    if (style.display === 'none' || style.visibility === 'hidden') continue;
+                    if (Number.parseFloat(style.opacity || '1') === 0) continue;
+
+                    const html = el.outerHTML || `<${el.tagName.toLowerCase()}>`;
+                    const truncatedHtml = html.length > 140 ? `${html.slice(0, 140)}...` : html;
+                    const stableSel = getStableSelector(el);
+
+                    // 1. Check for uncertainty
+                    const uncertaintyMsg = getUncertainty(el);
+                    if (uncertaintyMsg) {
+                        allFindings.push({
+                            element: truncatedHtml,
+                            selector: stableSel,
+                            message: uncertaintyMsg,
+                            suggestion: 'Verify contrast ratio manually using an eyedropper or diagnostic tool.',
+                            finding_type: 'needs_review',
+                            remediation_code: `${el.tagName.toLowerCase()} {\\n  color: #1a1a1a;\\n  background-color: #ffffff;\\n}`
+                        });
+                        continue;
+                    }
+
+                    // 2. Standard contrast check
+                    const foreground = parseColor(style.color);
+                    const background = backgroundFor(el);
+                    if (!foreground || !background) continue;
+
+                    const resolvedForeground = blend(foreground, background);
+                    const ratio = contrastRatio(resolvedForeground, background);
+                    const fontSize = Number.parseFloat(style.fontSize || '16');
+                    const fontWeight = Number.parseInt(style.fontWeight || '400', 10) || 400;
+                    const isLargeText = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700);
+                    const minimum = isLargeText ? 3 : 4.5;
+
+                    if (ratio + 0.01 < minimum) {
+                        allFindings.push({
+                            element: truncatedHtml,
+                            selector: stableSel,
                             message: `Text contrast ratio ${ratio.toFixed(2)}:1 is below the required ${minimum}:1`,
                             suggestion: 'Increase the difference between foreground and background colors for readable text.',
-                            remediation_code: `${el.tagName.toLowerCase()} {\\n  color: #1a1a1a;\\n  background-color: #ffffff;\\n}`,
-                        }];
-                    })
-                    .slice(0, 20);
+                            remediation_code: `${el.tagName.toLowerCase()} {\\n  color: #1a1a1a;\\n  background-color: #ffffff;\\n}`
+                        });
+                    }
+                }
+
+                return allFindings;
             }"""
         )
+        total_matched = len(findings)
+        sliced = findings[:cap]
+        for f in sliced:
+            f["truncated"] = total_matched > cap
+            f["total"] = total_matched
+        return sliced
 
 
 class FocusAppearanceRule(AbstractRule):

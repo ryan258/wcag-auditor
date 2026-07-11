@@ -71,7 +71,8 @@ class MissingLabelsRule(AbstractRule):
                 violations.append({
                     "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
                     "message": "Form input missing label",
-                    "suggestion": "Add a <label> element, wrap the input in a <label>, or use aria-label"
+                    "suggestion": "Add a <label> element, wrap the input in a <label>, or use aria-label",
+                    "locator": loc
                 })
         return violations
 
@@ -97,7 +98,8 @@ class MissingLangRule(AbstractRule):
                 violations.append({
                     "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
                     "message": "HTML element missing lang attribute",
-                    "suggestion": 'Add lang attribute to <html> element (e.g., <html lang="en">)'
+                    "suggestion": 'Add lang attribute to <html> element (e.g., <html lang="en">)',
+                    "locator": locator.first
                 })
         return violations
 
@@ -135,7 +137,8 @@ class EmptyLinksRule(AbstractRule):
                 violations.append({
                     "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
                     "message": "Link has no discernible text",
-                    "suggestion": "Add text content, aria-label, or an image with non-empty alt text"
+                    "suggestion": "Add text content, aria-label, or an image with non-empty alt text",
+                    "locator": loc
                 })
         return violations
 
@@ -169,7 +172,8 @@ class EmptyButtonsRule(AbstractRule):
                 violations.append({
                     "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
                     "message": "Button has no discernible text",
-                    "suggestion": "Add text content, aria-label, or value attribute"
+                    "suggestion": "Add text content, aria-label, or value attribute",
+                    "locator": loc
                 })
         return violations
 
@@ -215,7 +219,8 @@ class AutofocusInputsRule(AbstractRule):
             violations.append({
                 "element": html_snippet[:100] + "..." if len(html_snippet) > 100 else html_snippet,
                 "message": "Element has autofocus attribute",
-                "suggestion": "Remove autofocus to avoid disorienting users"
+                "suggestion": "Remove autofocus to avoid disorienting users",
+                "locator": loc
             })
         return violations
 
